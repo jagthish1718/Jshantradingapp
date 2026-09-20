@@ -13,15 +13,35 @@ import CandlestickChart, { Candle } from '../components/CandlestickChart';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
 
-type Timeframe = '1D' | '1W' | '1M' | '3M' | '1Y';
+type Timeframe = '1' | '2' | '3' | '5' | '10' | '15' | '20' | '25' | '30' | 'D' | 'W' | 'M';
 
-const TIMEFRAMES: { key: Timeframe; count: number; volPct: number }[] = [
-  { key: '1D', count: 26, volPct: 0.003 },
-  { key: '1W', count: 28, volPct: 0.007 },
-  { key: '1M', count: 30, volPct: 0.014 },
-  { key: '3M', count: 36, volPct: 0.024 },
-  { key: '1Y', count: 52, volPct: 0.034 },
+// Real candle-interval picker: minutes for the intraday buckets, then
+// Day/Week/Month. `count` is how many bars are visible at once (a fixed
+// "recent session" length for the minute intervals, then a sensible
+// look-back for the higher ones). `minutes` drives synthetic volatility —
+// a candle spanning more time should swing more (see MINUTE_VOL below).
+const TIMEFRAMES: { key: Timeframe; label: string; minutes: number; count: number }[] = [
+  { key: '1', label: '1m', minutes: 1, count: 60 },
+  { key: '2', label: '2m', minutes: 2, count: 60 },
+  { key: '3', label: '3m', minutes: 3, count: 60 },
+  { key: '5', label: '5m', minutes: 5, count: 60 },
+  { key: '10', label: '10m', minutes: 10, count: 60 },
+  { key: '15', label: '15m', minutes: 15, count: 60 },
+  { key: '20', label: '20m', minutes: 20, count: 60 },
+  { key: '25', label: '25m', minutes: 25, count: 60 },
+  { key: '30', label: '30m', minutes: 30, count: 60 },
+  { key: 'D', label: 'Day', minutes: 1440, count: 30 },
+  { key: 'W', label: 'Week', minutes: 1440 * 7, count: 26 },
+  { key: 'M', label: 'Month', minutes: 1440 * 30, count: 24 },
 ];
+
+// Typical swing for a single 1-minute candle — every other interval's
+// per-candle volatility scales off this by sqrt(minutes), same as real
+// price series (volatility grows with the square root of elapsed time).
+const MINUTE_VOL = 0.0006;
+function volForMinutes(minutes: number): number {
+  return MINUTE_VOL * Math.sqrt(minutes);
+}
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 // Full-bleed-feeling chart: fill almost the whole screen width, and take a
@@ -69,7 +89,7 @@ export default function ChartViewScreen({ navigation, route }: Props) {
   const styles = makeStyles(colors);
   const { symbol, option } = route.params;
   const instrument = INSTRUMENTS.find((i) => i.symbol === symbol) ?? INSTRUMENTS[0];
-  const [timeframe, setTimeframe] = useState<Timeframe>('1D');
+  const [timeframe, setTimeframe] = useState<Timeframe>('15');
   const [trading, setTrading] = useState(false);
 
   const [, bump] = useState(0);
@@ -97,7 +117,7 @@ export default function ChartViewScreen({ navigation, route }: Props) {
 
   const tf = TIMEFRAMES.find((t) => t.key === timeframe)!;
   const candles = useMemo(
-    () => genCandles(anchorRef.current!, tf.count, tf.volPct),
+    () => genCandles(anchorRef.current!, tf.count, volForMinutes(tf.minutes)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [timeframe]
   );
@@ -229,17 +249,17 @@ export default function ChartViewScreen({ navigation, route }: Props) {
         </Pressable>
       </View>
 
-      <View style={styles.tfRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tfRow}>
         {TIMEFRAMES.map((t) => (
           <Pressable
             key={t.key}
             style={[styles.tfChip, timeframe === t.key && styles.tfChipActive]}
             onPress={() => setTimeframe(t.key)}
           >
-            <Text style={[styles.tfChipText, timeframe === t.key && styles.tfChipTextActive]}>{t.key}</Text>
+            <Text style={[styles.tfChipText, timeframe === t.key && styles.tfChipTextActive]}>{t.label}</Text>
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xl }}>
         <View style={styles.chartCard}>
@@ -327,7 +347,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  tfChip: { flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
+  tfChip: { alignItems: 'center', paddingVertical: 7, paddingHorizontal: spacing.sm, borderRadius: radius.pill, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
   tfChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   tfChipText: { fontFamily: fonts.semiBold, fontSize: 12, color: colors.textMuted },
   tfChipTextActive: { color: '#fff' },
