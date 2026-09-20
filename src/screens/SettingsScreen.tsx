@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View, Pressable, ScrollView, Switch, Modal, Alert } from 'react-native';
+import { StyleSheet, Text, View, Pressable, ScrollView, Switch, Modal, Alert, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { spacing, radius, fonts } from '../theme/spacing';
@@ -13,6 +13,7 @@ import { useEntitlements } from '../context/EntitlementsContext';
 import { useAuth } from '../context/AuthContext';
 import { STORAGE_KEYS } from '../utils/storage';
 import { useNotifications } from '../hooks/useNotifications';
+import { PAYMENTS_BACKEND_URL } from '../config/apiKeys';
 
 const THEME_OPTIONS: { key: ThemeMode; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'light', label: 'Light', icon: 'sunny-outline' },
@@ -167,6 +168,39 @@ export default function SettingsScreen() {
           title="Help & About"
           subtitle="Niveshaa v1.0"
           onPress={() => setHelpOpen(true)}
+        />
+        <Divider styles={styles} />
+        <Row
+          colors={colors}
+          styles={styles}
+          icon="document-text-outline"
+          iconBg={colors.surface}
+          iconColor={colors.textMuted}
+          title="Privacy Policy"
+          subtitle="How your data is used"
+          onPress={() => Linking.openURL(`${PAYMENTS_BACKEND_URL}/privacy.html`)}
+        />
+        <Divider styles={styles} />
+        <Row
+          colors={colors}
+          styles={styles}
+          icon="document-text-outline"
+          iconBg={colors.surface}
+          iconColor={colors.textMuted}
+          title="Terms of Service"
+          subtitle="Rules for using Niveshaa"
+          onPress={() => Linking.openURL(`${PAYMENTS_BACKEND_URL}/terms.html`)}
+        />
+        <Divider styles={styles} />
+        <Row
+          colors={colors}
+          styles={styles}
+          icon="cash-outline"
+          iconBg={colors.surface}
+          iconColor={colors.textMuted}
+          title="Refund & Cancellation Policy"
+          subtitle="How refunds work"
+          onPress={() => Linking.openURL(`${PAYMENTS_BACKEND_URL}/refund.html`)}
         />
       </View>
 
