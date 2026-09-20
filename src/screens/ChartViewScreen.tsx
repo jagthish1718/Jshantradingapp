@@ -92,12 +92,61 @@ export default function ChartViewScreen({ navigation, route }: Props) {
   const [timeframe, setTimeframe] = useState<Timeframe>('15');
   const [trading, setTrading] = useState(false);
 
-  const [, bump] = useState(0);
+  // The underlying's own live-updating candle series — the single source
+  // of truth for every price shown on this screen. The old design
+  // generated the whole series once and froze it at mount, so the live
+  // price line drifted further from the last candle the longer the screen
+  // stayed open (exactly the "candle on one side, price line on the other"
+  // mismatch). Now the right-most candle is a real, currently-forming bar
+  // that keeps extending its H/L/C to the live tick, and only rolls over
+  // into a new candle once a full interval (per the selected timeframe)
+  // has actually elapsed — so the candle, the live price line, the price
+  // badge and the volume bar underneath it always agree.
+  const tf = TIMEFRAMES.find((t) => t.key === timeframe)!;
+  const [underlyingCandles, setUnderlyingCandles] = useState<Candle[]>(() =>
+    genCandles(getPrice(instrument.symbol) || instrument.base, tf.count, volForMinutes(tf.minutes))
+  );
+  const rolloverAtRef = useRef<number>(Date.now());
+
+  // Re-seed the whole series when the interval changes (a 1m chart and a
+  // Month chart aren't the same data at a different zoom — they're
+  // different bars), and start the day/week ticker fresh.
   useEffect(() => {
     ensureStarted();
-    const unsub = subscribe(() => bump((n) => n + 1));
+    const seedTf = TIMEFRAMES.find((t) => t.key === timeframe)!;
+    setUnderlyingCandles(genCandles(getPrice(instrument.symbol) || instrument.base, seedTf.count, volForMinutes(seedTf.minutes)));
+    rolloverAtRef.current = Date.now();
+  }, [timeframe, instrument.symbol]);
+
+  // Every market tick: extend the currently-forming candle to the new
+  // price, or roll into a fresh one once its interval has elapsed.
+  useEffect(() => {
+    const unsub = subscribe(() => {
+      const price = getPrice(instrument.symbol);
+      const liveTf = TIMEFRAMES.find((t) => t.key === timeframe)!;
+      const intervalMs = liveTf.minutes * 60 * 1000;
+      setUnderlyingCandles((prev) => {
+        if (prev.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        const now = Date.now();
+        if (now - rolloverAtRef.current >= intervalMs) {
+          rolloverAtRef.current = now;
+          const fresh: Candle = { o: price, h: price, l: price, c: price, v: Math.round(40000 + Math.random() * 160000) };
+          const kept = prev.length >= liveTf.count ? prev.slice(prev.length - liveTf.count + 1) : prev;
+          return [...kept, fresh];
+        }
+        const updated: Candle = {
+          ...last,
+          c: price,
+          h: Math.max(last.h, price),
+          l: Math.min(last.l, price),
+          v: (last.v ?? 0) + Math.round(500 + Math.random() * 2000),
+        };
+        return [...prev.slice(0, -1), updated];
+      });
+    });
     return unsub;
-  }, []);
+  }, [timeframe, instrument.symbol]);
 
   const underlyingSpot = getPrice(instrument.symbol);
   // For an option strike, the "live price" is its premium — recomputed
@@ -110,16 +159,7 @@ export default function ChartViewScreen({ navigation, route }: Props) {
     : instrument.symbol;
   const displayName = option ? `${instrument.name} · Expiry ${option.expiry}` : instrument.name;
 
-  // Freeze the anchor at first mount so switching timeframes doesn't make
-  // the whole chart jump every re-render (only a fresh timeframe redraws).
-  // Always anchored off the UNDERLYING's spot — an option's own candles are
-  // derived from this same series below, never generated independently.
-  const anchorRef = useRef<number | null>(null);
-  if (anchorRef.current === null) anchorRef.current = underlyingSpot || instrument.base;
-
-  const tf = TIMEFRAMES.find((t) => t.key === timeframe)!;
   const candles = useMemo(() => {
-    const underlyingCandles = genCandles(anchorRef.current!, tf.count, volForMinutes(tf.minutes));
     if (!option) return underlyingCandles;
 
     // Run every underlying O/H/L/C through the exact same optionPremium()
@@ -141,8 +181,7 @@ export default function ChartViewScreen({ navigation, route }: Props) {
       const vals = [oPrem, cPrem, hPrem, lPrem];
       return { o: oPrem, h: Math.max(...vals), l: Math.min(...vals), c: cPrem, v: d.v };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe, option?.strike, option?.optType]);
+  }, [underlyingCandles, option?.strike, option?.optType]);
 
   const first = candles[0];
   const changePct = ((livePrice - first.o) / first.o) * 100;
@@ -311,8 +350,8 @@ export default function ChartViewScreen({ navigation, route }: Props) {
           <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
           <Text style={styles.demoBannerText}>
             {option
-              ? `Tracking the ${option.optType === 'CE' ? 'Call' : 'Put'} premium for ${instrument.symbol} ${option.strike}, live off the underlying's spot. Older candles are simulated for practice.`
-              : 'Drag on the chart for a crosshair readout. The dashed line tracks the live price — same feed as everywhere else in Paper Trading. Older candles are simulated for practice.'}
+              ? `Tracking the ${option.optType === 'CE' ? 'Call' : 'Put'} premium for ${instrument.symbol} ${option.strike}, live off the underlying's spot. The right-most candle updates with every tick; older candles are simulated for practice.`
+              : 'Drag on the chart for a crosshair readout. The right-most candle updates live with the price feed, so it always matches the dashed line and badge. Older candles are simulated for practice.'}
           </Text>
         </View>
       </ScrollView>
