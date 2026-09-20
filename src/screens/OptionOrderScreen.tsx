@@ -473,6 +473,29 @@ export default function OptionOrderScreen({ navigation, route }: Props) {
           />
         )}
 
+        <Text style={styles.sectionLabel}>Validity</Text>
+        <Segmented
+          colors={colors}
+          value={validity}
+          onChange={setValidity}
+          options={[
+            { key: 'DAY', label: 'DAY' },
+            { key: 'IOC', label: 'IOC' },
+            { key: 'MIN', label: 'Minutes' },
+          ]}
+        />
+        {validity === 'MIN' && (
+          <TextInput
+            style={[styles.textInput, { marginTop: spacing.sm, maxWidth: 120 }]}
+            value={validityMinutes}
+            onChangeText={setValidityMinutes}
+            keyboardType="number-pad"
+            placeholder="5"
+            placeholderTextColor={colors.textLight}
+          />
+        )}
+
+        <Text style={styles.sectionLabel}>Stop-Loss & other options</Text>
         <View style={styles.card}>
           <View style={styles.switchRow}>
             <View style={{ flex: 1 }}>
@@ -532,28 +555,6 @@ export default function OptionOrderScreen({ navigation, route }: Props) {
             {marketProtection ? 'Fills at LTP exactly — no slippage.' : 'Off — a market order can fill slightly worse than LTP, like in real trading.'}
           </Text>
         </View>
-
-        <Text style={styles.sectionLabel}>Validity</Text>
-        <Segmented
-          colors={colors}
-          value={validity}
-          onChange={setValidity}
-          options={[
-            { key: 'DAY', label: 'DAY' },
-            { key: 'IOC', label: 'IOC' },
-            { key: 'MIN', label: 'Minutes' },
-          ]}
-        />
-        {validity === 'MIN' && (
-          <TextInput
-            style={[styles.textInput, { marginTop: spacing.sm, maxWidth: 120 }]}
-            value={validityMinutes}
-            onChangeText={setValidityMinutes}
-            keyboardType="number-pad"
-            placeholder="5"
-            placeholderTextColor={colors.textLight}
-          />
-        )}
 
         <View style={styles.marginCard}>
           <View style={styles.marginRow}>

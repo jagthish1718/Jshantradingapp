@@ -9,7 +9,7 @@ export interface Instrument {
 }
 
 export const INSTRUMENTS: Instrument[] = [
-  { symbol: 'NIFTY 50', name: 'Nifty 50 Index', base: 24800, hasOptions: true, optionStep: 50, lotSize: 75 },
+  { symbol: 'NIFTY 50', name: 'Nifty 50 Index', base: 24800, hasOptions: true, optionStep: 50, lotSize: 65 },
   { symbol: 'RELIANCE', name: 'Reliance Industries', base: 2940, hasOptions: true, optionStep: 20, lotSize: 250 },
   { symbol: 'TCS', name: 'Tata Consultancy Services', base: 4150, hasOptions: true, optionStep: 50, lotSize: 175 },
   { symbol: 'INFY', name: 'Infosys', base: 1850, hasOptions: true, optionStep: 20, lotSize: 400 },
