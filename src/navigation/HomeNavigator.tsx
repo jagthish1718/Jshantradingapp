@@ -5,6 +5,7 @@ import PaperTradingScreen from '../screens/PaperTradingScreen';
 import TradingJournalScreen from '../screens/TradingJournalScreen';
 import ChartViewScreen from '../screens/ChartViewScreen';
 import OptionsChainScreen from '../screens/OptionsChainScreen';
+import OptionOrderScreen from '../screens/OptionOrderScreen';
 import NewsScreen from '../screens/NewsScreen';
 import CompaniesScreen from '../screens/CompaniesScreen';
 import IPODetailsScreen from '../screens/IPODetailsScreen';
@@ -31,6 +32,7 @@ export default function HomeNavigator() {
       <Stack.Screen name="TradingJournal" component={TradingJournalScreen} options={{ title: 'Trading Journal', headerShown: false }} />
       <Stack.Screen name="ChartView" component={ChartViewScreen} options={{ headerShown: false }} />
       <Stack.Screen name="OptionsChain" component={OptionsChainScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="OptionOrder" component={OptionOrderScreen} options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="News" component={NewsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Companies" component={CompaniesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="IPOs" component={IPODetailsScreen} options={{ headerShown: false }} />

@@ -8,58 +8,18 @@ import { spacing, radius, fonts } from '../theme/spacing';
 import { STORAGE_KEYS } from '../utils/storage';
 import PriceChart from '../components/PriceChart';
 import { INSTRUMENTS } from '../data/instruments';
+import { ensureStarted, subscribe, getPrice, getHistory, getLivePrice, STARTING_CASH, TICK_MS } from '../data/marketSim';
+import type { Holding, OrderReason, OrderRecord, SimState } from '../types/trading';
+import { totalBlockedMargin } from '../types/trading';
 import { useEntitlements } from '../context/EntitlementsContext';
 import SubscriptionGate from '../components/SubscriptionGate';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
 
-type Holding = {
-  symbol: string;
-  qty: number;
-  avgPrice: number;
-  stopLoss: number | null;
-  target: number | null;
-  trailingPercent: number | null;
-  trailingHigh: number | null;
-};
-
-type OrderReason = 'Manual' | 'Stop-Loss' | 'Target' | 'Trailing SL';
-
-type OrderRecord = {
-  id: string;
-  symbol: string;
-  side: 'BUY' | 'SELL';
-  qty: number;
-  price: number;
-  reason: OrderReason;
-  timestamp: string;
-};
-
-type SimState = { cash: number; holdings: Holding[]; orders: OrderRecord[] };
-
-const STARTING_CASH = 100000;
-const TICK_MS = 2500;
-const HISTORY_CAP = 24;
-
 const defaultSim: SimState = { cash: STARTING_CASH, holdings: [], orders: [] };
 
 function formatRupees(n: number) {
   return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
-}
-
-function seedHistory(prices: Record<string, number>) {
-  const map: Record<string, number[]> = {};
-  INSTRUMENTS.forEach((ins) => {
-    const points: number[] = [];
-    let price = ins.base;
-    for (let i = 0; i < 12; i++) {
-      price = Math.max(ins.base * 0.85, price + (Math.random() - 0.5) * ins.base * 0.01);
-      points.push(Math.round(price * 100) / 100);
-    }
-    map[ins.symbol] = points;
-    prices[ins.symbol] = points[points.length - 1];
-  });
-  return map;
 }
 
 function getReasonColor(colors: ThemeColors): Record<OrderReason, string> {
@@ -85,14 +45,7 @@ export default function PaperTradingScreen({ navigation }: Props) {
   const rerender = () => bump((n) => n + 1);
 
   const simRef = useRef<SimState>(defaultSim);
-  const pricesRef = useRef<Record<string, number> | null>(null);
-  const historyRef = useRef<Record<string, number[]> | null>(null);
   const equityHistoryRef = useRef<number[]>([]);
-
-  if (pricesRef.current === null) {
-    pricesRef.current = {};
-    historyRef.current = seedHistory(pricesRef.current);
-  }
 
   const [tab, setTab] = useState<TabKey>('market');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -144,60 +97,63 @@ export default function PaperTradingScreen({ navigation }: Props) {
     return () => loop.stop();
   }, [liveDot]);
 
-  // The live market tick — moves every instrument's price a little, then
-  // checks every open position's stop-loss / target / trailing stop-loss
-  // and auto-closes anything that's been triggered.
+  // Prices now tick from one shared engine (src/data/marketSim.ts) so every
+  // screen — Market tab, Options Chain, Portfolio — sees the same numbers.
+  // On every shared tick we also re-check every open position (stock or
+  // option, long or short) against its Stop-Loss / Target / Trailing SL and
+  // auto-close anything that's been triggered.
   useEffect(() => {
-    const id = setInterval(() => {
-      const prices = pricesRef.current!;
-      const history = historyRef.current!;
-
-      INSTRUMENTS.forEach((ins) => {
-        const prev = prices[ins.symbol] ?? ins.base;
-        const drift = (Math.random() - 0.5) * ins.base * 0.006;
-        let next = prev + drift;
-        next = Math.max(ins.base * 0.7, Math.min(ins.base * 1.3, next));
-        next = Math.round(next * 100) / 100;
-        prices[ins.symbol] = next;
-        const hist = history[ins.symbol] ?? [];
-        hist.push(next);
-        if (hist.length > HISTORY_CAP) hist.shift();
-        history[ins.symbol] = hist;
-      });
-
+    ensureStarted();
+    const unsubscribe = subscribe(() => {
       let changed = false;
       const survivors: Holding[] = [];
       for (const h of simRef.current.holdings) {
-        const price = prices[h.symbol];
-        let sell = false;
+        const price = getLivePrice(h);
+        const isShort = h.qty < 0;
+        let closeOut = false;
         let reason: OrderReason = 'Manual';
 
-        if (h.trailingPercent) {
+        if (!isShort && h.trailingPercent) {
           const newHigh = Math.max(h.trailingHigh ?? h.avgPrice, price);
           h.trailingHigh = newHigh;
           const trigger = newHigh * (1 - h.trailingPercent / 100);
           if (price <= trigger) {
-            sell = true;
+            closeOut = true;
             reason = 'Trailing SL';
           }
         }
-        if (!sell && h.stopLoss != null && price <= h.stopLoss) {
-          sell = true;
-          reason = 'Stop-Loss';
+        if (!closeOut && h.stopLoss != null) {
+          if (!isShort && price <= h.stopLoss) {
+            closeOut = true;
+            reason = 'Stop-Loss';
+          } else if (isShort && price >= h.stopLoss) {
+            closeOut = true;
+            reason = 'Stop-Loss';
+          }
         }
-        if (!sell && h.target != null && price >= h.target) {
-          sell = true;
-          reason = 'Target';
+        if (!closeOut && h.target != null) {
+          if (!isShort && price >= h.target) {
+            closeOut = true;
+            reason = 'Target';
+          } else if (isShort && price <= h.target) {
+            closeOut = true;
+            reason = 'Target';
+          }
         }
 
-        if (sell) {
-          simRef.current.cash += price * h.qty;
+        if (closeOut) {
+          const qtyAbs = Math.abs(h.qty);
+          if (isShort) {
+            simRef.current.cash -= price * qtyAbs; // buy back to cover
+          } else {
+            simRef.current.cash += price * qtyAbs; // sell to close
+          }
           simRef.current.orders = [
             {
               id: `${Date.now()}-${h.symbol}-${reason}`,
               symbol: h.symbol,
-              side: 'SELL',
-              qty: h.qty,
+              side: isShort ? 'BUY' : 'SELL',
+              qty: qtyAbs,
               price,
               reason,
               timestamp: new Date().toISOString(),
@@ -211,7 +167,7 @@ export default function PaperTradingScreen({ navigation }: Props) {
       }
       simRef.current.holdings = survivors;
 
-      const holdingsValue = survivors.reduce((sum, h) => sum + (prices[h.symbol] ?? h.avgPrice) * h.qty, 0);
+      const holdingsValue = survivors.reduce((sum, h) => sum + getLivePrice(h) * h.qty, 0);
       const equity = simRef.current.cash + holdingsValue;
       const eq = equityHistoryRef.current;
       eq.push(Math.round(equity * 100) / 100);
@@ -219,8 +175,8 @@ export default function PaperTradingScreen({ navigation }: Props) {
 
       if (changed) persistSim();
       rerender();
-    }, TICK_MS);
-    return () => clearInterval(id);
+    });
+    return unsubscribe;
   }, []);
 
   if (!loaded) return <SafeAreaView style={styles.root} />;
@@ -237,10 +193,10 @@ export default function PaperTradingScreen({ navigation }: Props) {
     );
   }
 
-  const prices = pricesRef.current!;
-  const history = historyRef.current!;
   const { cash, holdings, orders } = simRef.current;
-  const holdingsValue = holdings.reduce((sum, h) => sum + (prices[h.symbol] ?? h.avgPrice) * h.qty, 0);
+  const blockedMargin = totalBlockedMargin(holdings);
+  const availableCash = cash - blockedMargin;
+  const holdingsValue = holdings.reduce((sum, h) => sum + getLivePrice(h) * h.qty, 0);
   const portfolioValue = cash + holdingsValue;
   const totalPnl = portfolioValue - STARTING_CASH;
 
@@ -255,13 +211,13 @@ export default function PaperTradingScreen({ navigation }: Props) {
   };
 
   const buy = (symbol: string) => {
-    const price = prices[symbol];
+    const price = getPrice(symbol);
     const cost = price * qty;
     if (qty <= 0) return;
-    if (cost > simRef.current.cash) {
+    if (cost > availableCash) {
       Alert.alert(
         'Not enough cash',
-        `You need ${formatRupees(cost)} but only have ${formatRupees(simRef.current.cash)} available.`
+        `You need ${formatRupees(cost)} but only have ${formatRupees(availableCash)} available.`
       );
       return;
     }
@@ -305,7 +261,7 @@ export default function PaperTradingScreen({ navigation }: Props) {
   const sell = (symbol: string) => {
     const existing = simRef.current.holdings.find((h) => h.symbol === symbol);
     if (!existing || qty <= 0) return;
-    const price = prices[symbol];
+    const price = getPrice(symbol);
     const sellQty = Math.min(qty, existing.qty);
     simRef.current.cash += price * sellQty;
     existing.qty -= sellQty;
@@ -328,17 +284,25 @@ export default function PaperTradingScreen({ navigation }: Props) {
     rerender();
   };
 
+  // Closes any open position — plain stock, or an option position, long or
+  // short (a short position is "closed" by buying it back).
   const closePosition = (symbol: string) => {
     const existing = simRef.current.holdings.find((h) => h.symbol === symbol);
     if (!existing) return;
-    const price = prices[symbol];
-    simRef.current.cash += price * existing.qty;
+    const price = getLivePrice(existing);
+    const isShort = existing.qty < 0;
+    const qtyAbs = Math.abs(existing.qty);
+    if (isShort) {
+      simRef.current.cash -= price * qtyAbs;
+    } else {
+      simRef.current.cash += price * qtyAbs;
+    }
     simRef.current.orders = [
       {
         id: `${Date.now()}-close`,
         symbol,
-        side: 'SELL',
-        qty: existing.qty,
+        side: isShort ? 'BUY' : 'SELL',
+        qty: qtyAbs,
         price,
         reason: 'Manual',
         timestamp: new Date().toISOString(),
@@ -376,8 +340,11 @@ export default function PaperTradingScreen({ navigation }: Props) {
             {totalPnl >= 0 ? '+' : ''}
             {formatRupees(totalPnl)} overall
           </Text>
-          <Text style={styles.headerCash}>Cash: {formatRupees(cash)}</Text>
+          <Text style={styles.headerCash}>Available: {formatRupees(availableCash)}</Text>
         </View>
+        {blockedMargin > 0 && (
+          <Text style={styles.headerMargin}>Margin blocked (written options): {formatRupees(blockedMargin)}</Text>
+        )}
       </View>
 
       <View style={styles.tabRow}>
@@ -405,9 +372,9 @@ export default function PaperTradingScreen({ navigation }: Props) {
             </View>
 
             {INSTRUMENTS.map((ins) => {
-              const price = prices[ins.symbol];
-              const hist = history[ins.symbol];
-              const changePct = ((hist[hist.length - 1] - hist[0]) / hist[0]) * 100;
+              const price = getPrice(ins.symbol);
+              const hist = getHistory(ins.symbol);
+              const changePct = hist.length >= 2 ? ((hist[hist.length - 1] - hist[0]) / hist[0]) * 100 : 0;
               const trendColor = changePct >= 0 ? colors.success : colors.danger;
               const isExpanded = expanded === ins.symbol;
               const holding = holdings.find((h) => h.symbol === ins.symbol);
@@ -607,17 +574,51 @@ export default function PaperTradingScreen({ navigation }: Props) {
               </View>
             ) : (
               holdings.map((h) => {
-                const cur = prices[h.symbol] ?? h.avgPrice;
+                const cur = getLivePrice(h);
                 const pnl = (cur - h.avgPrice) * h.qty;
                 const hasRules = h.stopLoss != null || h.target != null || h.trailingPercent != null;
+                const isShort = h.qty < 0;
+                const isOption = !!h.option;
                 return (
                   <View key={h.symbol} style={styles.holdingCard}>
                     <View style={styles.holdingTopRow}>
                       <View style={{ flex: 1 }}>
-                        <Text style={styles.holdingSymbol}>{h.symbol}</Text>
+                        <View style={styles.holdingTitleRow}>
+                          <Text style={styles.holdingSymbol}>{h.symbol}</Text>
+                          {isOption && (
+                            <View
+                              style={[
+                                styles.optionBadge,
+                                { backgroundColor: h.option!.type === 'CE' ? colors.successBg : colors.dangerBg },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.optionBadgeText,
+                                  { color: h.option!.type === 'CE' ? colors.success : colors.danger },
+                                ]}
+                              >
+                                {h.option!.type}
+                              </Text>
+                            </View>
+                          )}
+                          {isShort && (
+                            <View style={[styles.optionBadge, { backgroundColor: colors.goldBg }]}>
+                              <Text style={[styles.optionBadgeText, { color: colors.gold }]}>WRITTEN</Text>
+                            </View>
+                          )}
+                          {isOption && h.product && (
+                            <View style={[styles.optionBadge, { backgroundColor: colors.surface }]}>
+                              <Text style={[styles.optionBadgeText, { color: colors.textMuted }]}>{h.product}</Text>
+                            </View>
+                          )}
+                        </View>
                         <Text style={styles.holdingMeta}>
-                          {h.qty} qty · avg {formatRupees(h.avgPrice)} · now {formatRupees(cur)}
+                          {Math.abs(h.qty)} qty · avg {formatRupees(h.avgPrice)} · now {formatRupees(cur)}
                         </Text>
+                        {isShort && h.marginBlocked ? (
+                          <Text style={styles.holdingMargin}>Margin blocked: {formatRupees(h.marginBlocked)}</Text>
+                        ) : null}
                       </View>
                       <Text style={[styles.holdingPnl, pnl >= 0 ? styles.pnlPositive : styles.pnlNegative]}>
                         {pnl >= 0 ? '+' : ''}
@@ -646,7 +647,7 @@ export default function PaperTradingScreen({ navigation }: Props) {
                     )}
 
                     <Pressable style={styles.closeButton} onPress={() => closePosition(h.symbol)}>
-                      <Text style={styles.closeButtonText}>Close position</Text>
+                      <Text style={styles.closeButtonText}>{isShort ? 'Buy to cover' : 'Close position'}</Text>
                     </Pressable>
                   </View>
                 );
@@ -680,6 +681,8 @@ export default function PaperTradingScreen({ navigation }: Props) {
                     <Text style={styles.orderSymbol}>{o.symbol}</Text>
                     <Text style={styles.orderMeta}>
                       {o.qty} qty @ {formatRupees(o.price)}
+                      {o.product ? ` · ${o.product}` : ''}
+                      {o.orderKind === 'Iceberg' ? ' · Iceberg' : ''}
                     </Text>
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
@@ -736,6 +739,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   headerStatsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm },
   headerPnl: { fontFamily: fonts.semiBold, fontSize: 12.5 },
   headerCash: { fontFamily: fonts.regular, fontSize: 12.5, color: 'rgba(255,255,255,0.8)' },
+  headerMargin: { fontFamily: fonts.regular, fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 4 },
   pnlPositive: { color: colors.success },
   pnlNegative: { color: colors.danger },
   tabRow: {
@@ -895,8 +899,12 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     marginBottom: spacing.sm,
   },
   holdingTopRow: { flexDirection: 'row', alignItems: 'center' },
+  holdingTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 5 },
   holdingSymbol: { fontFamily: fonts.semiBold, fontSize: 14, color: colors.text },
+  optionBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm },
+  optionBadgeText: { fontFamily: fonts.bold, fontSize: 9.5, letterSpacing: 0.3 },
   holdingMeta: { fontFamily: fonts.regular, fontSize: 11.5, color: colors.textMuted, marginTop: 2 },
+  holdingMargin: { fontFamily: fonts.regular, fontSize: 10.5, color: colors.gold, marginTop: 2 },
   holdingPnl: { fontFamily: fonts.bold, fontSize: 13.5 },
   rulesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
   ruleTag: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.sm },

@@ -12,6 +12,14 @@ export type HomeStackParamList = {
   TradingJournal: undefined;
   ChartView: { symbol: string };
   OptionsChain: undefined;
+  OptionOrder: {
+    underlying: string;
+    strike: number;
+    optType: 'CE' | 'PE';
+    expiry: string;
+    lotSize: number;
+    side?: 'BUY' | 'SELL';
+  };
   News: undefined;
   Companies: undefined;
   IPOs: undefined;
