@@ -409,9 +409,21 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  tfChip: { alignItems: 'center', paddingVertical: 7, paddingHorizontal: spacing.sm, borderRadius: radius.pill, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
+  tfChip: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 40,
+    paddingVertical: 9,
+    paddingHorizontal: spacing.sm + 2,
+    borderRadius: radius.pill,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   tfChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  tfChipText: { fontFamily: fonts.semiBold, fontSize: 12, color: colors.textMuted },
+  // Full-contrast text even when unselected — these are tappable interval
+  // buttons, not passive labels, so they need to stay legible at a glance.
+  tfChipText: { fontFamily: fonts.bold, fontSize: 13.5, color: colors.text },
   tfChipTextActive: { color: '#fff' },
   chartCard: {
     borderWidth: 1,
