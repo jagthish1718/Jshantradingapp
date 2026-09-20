@@ -149,6 +149,13 @@ export default function OptionsChainScreen({ navigation }: Props) {
     });
   };
 
+  const goToChart = (strike: number, optType: 'CE' | 'PE') => {
+    navigation.navigate('ChartView', {
+      symbol: underlying.symbol,
+      option: { strike, optType, expiry, lotSize },
+    });
+  };
+
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
@@ -241,7 +248,17 @@ export default function OptionsChainScreen({ navigation }: Props) {
                 {row.ceChange.toFixed(1)}%
               </Text>
             </Pressable>
-            <Text style={[styles.strikeText, { flex: 0.9 }, row.isAtm && styles.strikeTextAtm]}>{row.strike}</Text>
+            <View style={{ flex: 0.9, alignItems: 'center' }}>
+              <Text style={[styles.strikeText, row.isAtm && styles.strikeTextAtm]}>{row.strike}</Text>
+              <Pressable
+                style={styles.chartIconBtn}
+                onPress={() => goToChart(row.strike, 'CE')}
+                onLongPress={() => goToChart(row.strike, 'PE')}
+                hitSlop={6}
+              >
+                <Ionicons name="stats-chart-outline" size={11} color={colors.textMuted} />
+              </Pressable>
+            </View>
             <Pressable style={{ flex: 1 }} onPress={() => goToOrder(row.strike, 'PE', 'BUY')} onLongPress={() => goToOrder(row.strike, 'PE', 'SELL')}>
               <Text style={[styles.ltpText, { textAlign: 'right' }]}>{row.peLtp.toFixed(1)}</Text>
               <Text style={[styles.chngText, { color: row.peChange >= 0 ? colors.success : colors.danger, textAlign: 'right' }]}>
@@ -263,8 +280,9 @@ export default function OptionsChainScreen({ navigation }: Props) {
         <View style={styles.demoBanner}>
           <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
           <Text style={styles.demoBannerText}>
-            Tap a price to Buy, long-press to Sell/Write. Simulated premiums, OI & Greeks for practice — the full
-            order screen has Stoploss, GTT, Iceberg, Market Protection and Validity, just like a real broker.
+            Tap a price to Buy, long-press to Sell/Write. Tap the chart icon under a strike for its Call chart,
+            long-press it for the Put chart. Simulated premiums, OI & Greeks for practice — the full order screen has
+            Stoploss, GTT, Iceberg, Market Protection and Validity, just like a real broker.
           </Text>
         </View>
       </ScrollView>
@@ -341,6 +359,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   chngText: { fontFamily: fonts.regular, fontSize: 9.5, marginTop: 1 },
   strikeText: { fontFamily: fonts.bold, fontSize: 12.5, color: colors.text, textAlign: 'center' },
   strikeTextAtm: { color: colors.primary },
+  chartIconBtn: { marginTop: 2, padding: 2 },
   demoBanner: {
     flexDirection: 'row',
     alignItems: 'center',

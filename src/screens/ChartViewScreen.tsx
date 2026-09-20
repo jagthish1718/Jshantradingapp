@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView, Alert } from 'react-native';
+import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView, Alert, Dimensions } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../context/ThemeContext';
@@ -7,7 +7,7 @@ import type { ThemeColors } from '../theme/colors';
 import { spacing, radius, fonts } from '../theme/spacing';
 import { STORAGE_KEYS } from '../utils/storage';
 import { INSTRUMENTS } from '../data/instruments';
-import { ensureStarted, subscribe, getPrice, STARTING_CASH } from '../data/marketSim';
+import { ensureStarted, subscribe, getPrice, optionPremium, optionSymbol, STARTING_CASH } from '../data/marketSim';
 import type { SimState } from '../types/trading';
 import CandlestickChart, { Candle } from '../components/CandlestickChart';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -22,6 +22,13 @@ const TIMEFRAMES: { key: Timeframe; count: number; volPct: number }[] = [
   { key: '3M', count: 36, volPct: 0.024 },
   { key: '1Y', count: 52, volPct: 0.034 },
 ];
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+// Full-bleed-feeling chart: fill almost the whole screen width, and take a
+// large enough slice of screen height to actually look like a real trading
+// app's chart rather than a small preview.
+const CHART_WIDTH = SCREEN_W - spacing.md * 2 - spacing.xs * 2 - 2;
+const CHART_HEIGHT = Math.round(Math.max(300, Math.min(440, SCREEN_H * 0.42)));
 
 // Anchored so the series always ends exactly at `anchorPrice` — keeps the
 // static candle shape consistent with the live price line drawn on top of
@@ -60,7 +67,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'ChartView'>;
 export default function ChartViewScreen({ navigation, route }: Props) {
   const colors = useThemeColors();
   const styles = makeStyles(colors);
-  const { symbol } = route.params;
+  const { symbol, option } = route.params;
   const instrument = INSTRUMENTS.find((i) => i.symbol === symbol) ?? INSTRUMENTS[0];
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [trading, setTrading] = useState(false);
@@ -72,7 +79,16 @@ export default function ChartViewScreen({ navigation, route }: Props) {
     return unsub;
   }, []);
 
-  const livePrice = getPrice(instrument.symbol);
+  const underlyingSpot = getPrice(instrument.symbol);
+  // For an option strike, the "live price" is its premium — recomputed
+  // fresh off the underlying's spot on every tick, so it moves in real
+  // time just like the plain-instrument chart does.
+  const livePrice = option ? optionPremium(underlyingSpot, option.strike, option.optType === 'CE') : underlyingSpot;
+
+  const displaySymbol = option
+    ? optionSymbol({ underlying: instrument.symbol, strike: option.strike, type: option.optType, expiry: option.expiry, lotSize: option.lotSize })
+    : instrument.symbol;
+  const displayName = option ? `${instrument.name} · Expiry ${option.expiry}` : instrument.name;
 
   // Freeze the anchor at first mount so switching timeframes doesn't make
   // the whole chart jump every re-render (only a fresh timeframe redraws).
@@ -97,6 +113,8 @@ export default function ChartViewScreen({ navigation, route }: Props) {
   // Kite's own BUY/SELL price buttons use. Reads/writes AsyncStorage
   // directly so it works no matter which tab of Paper Trading you came
   // from; that screen re-syncs on focus, so it'll show up there too.
+  // Only used for plain instruments — an option strike routes to the full
+  // Order screen instead (see handleTrade), since writes/margin need that.
   const quickTrade = async (side: 'BUY' | 'SELL') => {
     setTrading(true);
     const price = getPrice(instrument.symbol);
@@ -160,6 +178,24 @@ export default function ChartViewScreen({ navigation, route }: Props) {
     }
   };
 
+  const handleTrade = (side: 'BUY' | 'SELL') => {
+    if (option) {
+      // Options carry lot sizes, margin blocking and write economics that
+      // the full Order screen already handles correctly — route there
+      // instead of re-implementing that logic here.
+      navigation.navigate('OptionOrder', {
+        underlying: instrument.symbol,
+        strike: option.strike,
+        optType: option.optType,
+        expiry: option.expiry,
+        lotSize: option.lotSize,
+        side,
+      });
+    } else {
+      quickTrade(side);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
@@ -168,8 +204,8 @@ export default function ChartViewScreen({ navigation, route }: Props) {
             <Ionicons name="arrow-back" size={18} color="#fff" />
           </Pressable>
           <View style={{ flex: 1, marginLeft: spacing.sm }}>
-            <Text style={styles.headerSymbol}>{instrument.symbol}</Text>
-            <Text style={styles.headerName}>{instrument.name}</Text>
+            <Text style={styles.headerSymbol}>{displaySymbol}</Text>
+            <Text style={styles.headerName}>{displayName}</Text>
           </View>
         </View>
         <View style={styles.priceRow}>
@@ -182,12 +218,12 @@ export default function ChartViewScreen({ navigation, route }: Props) {
       </View>
 
       <View style={styles.quickTradeRow}>
-        <Pressable style={[styles.quickTradeButton, styles.buyButton]} disabled={trading} onPress={() => quickTrade('BUY')}>
+        <Pressable style={[styles.quickTradeButton, styles.buyButton]} disabled={trading} onPress={() => handleTrade('BUY')}>
           <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
           <Text style={styles.quickTradeLabel}>BUY</Text>
         </Pressable>
-        <Text style={styles.quickTradeHint}>1 qty</Text>
-        <Pressable style={[styles.quickTradeButton, styles.sellButton]} disabled={trading} onPress={() => quickTrade('SELL')}>
+        <Text style={styles.quickTradeHint}>{option ? `Lot ${option.lotSize}` : '1 qty'}</Text>
+        <Pressable style={[styles.quickTradeButton, styles.sellButton]} disabled={trading} onPress={() => handleTrade('SELL')}>
           <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
           <Text style={styles.quickTradeLabel}>SELL</Text>
         </Pressable>
@@ -205,9 +241,9 @@ export default function ChartViewScreen({ navigation, route }: Props) {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xl }}>
         <View style={styles.chartCard}>
-          <CandlestickChart data={candles} width={294} height={220} livePrice={livePrice} showVolume />
+          <CandlestickChart data={candles} width={CHART_WIDTH} height={CHART_HEIGHT} livePrice={livePrice} showVolume />
         </View>
 
         <View style={styles.statsRow}>
@@ -232,8 +268,9 @@ export default function ChartViewScreen({ navigation, route }: Props) {
         <View style={styles.demoBanner}>
           <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
           <Text style={styles.demoBannerText}>
-            Drag on the chart for a crosshair readout. The dashed line tracks the live price — same feed as
-            everywhere else in Paper Trading. Older candles are simulated for practice.
+            {option
+              ? `Tracking the ${option.optType === 'CE' ? 'Call' : 'Put'} premium for ${instrument.symbol} ${option.strike}, live off the underlying's spot. Older candles are simulated for practice.`
+              : 'Drag on the chart for a crosshair readout. The dashed line tracks the live price — same feed as everywhere else in Paper Trading. Older candles are simulated for practice.'}
           </Text>
         </View>
       </ScrollView>
@@ -298,7 +335,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
-    padding: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
     alignItems: 'center',
     marginBottom: spacing.lg,
   },

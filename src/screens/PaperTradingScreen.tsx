@@ -764,7 +764,12 @@ export default function PaperTradingScreen({ navigation }: Props) {
                       {isOption && (
                         <Pressable
                           style={styles.chartLinkButton}
-                          onPress={() => navigation.navigate('ChartView', { symbol: h.option!.underlying })}
+                          onPress={() =>
+              navigation.navigate('ChartView', {
+                symbol: h.option!.underlying,
+                option: { strike: h.option!.strike, optType: h.option!.type, expiry: h.option!.expiry, lotSize: h.option!.lotSize },
+              })
+            }
                         >
                           <Ionicons name="stats-chart-outline" size={13} color={colors.primary} />
                           <Text style={styles.chartLinkButtonText}>{h.option!.underlying} chart</Text>

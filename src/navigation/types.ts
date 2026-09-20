@@ -10,7 +10,10 @@ export type HomeStackParamList = {
   Checklist: undefined;
   PaperTrading: undefined;
   TradingJournal: undefined;
-  ChartView: { symbol: string };
+  ChartView: {
+    symbol: string;
+    option?: { strike: number; optType: 'CE' | 'PE'; expiry: string; lotSize: number };
+  };
   OptionsChain: undefined;
   OptionOrder: {
     underlying: string;
