@@ -14,6 +14,26 @@ export const STARTING_CASH = 100000;
 export const TICK_MS = 2500;
 const HISTORY_CAP = 24;
 
+// Realistic pace, calibrated off NIFTY: a real index never jumps hundreds
+// of points inside a second, so every tick is bounded to move at somewhere
+// between REF_MIN_PTS_PER_SEC and REF_MAX_PTS_PER_SEC a second (direction
+// random each tick). Every other instrument gets the same *relative*
+// pace, scaled by its own price level, so a ₹1,265 stock and the ₹24,800
+// index both feel equally calm/lively instead of one dwarfing the other.
+export const REF_BASE = 24800;
+export const REF_MAX_PTS_PER_SEC = 10;
+export const REF_MIN_PTS_PER_SEC = 0.1;
+
+// Fractional (percentage-of-price) volatility for a single 1-MINUTE candle
+// on any instrument, derived from the same per-second pace above via
+// sqrt(time) scaling — the standard way volatility grows with elapsed
+// time. Anything that synthesizes its own price history (like a chart's
+// older, simulated candles) should build off this constant rather than
+// inventing a separate figure, so the synthetic history and the real,
+// live-ticking price always look like they belong to the same series.
+const AVG_PTS_PER_SEC = (REF_MIN_PTS_PER_SEC + REF_MAX_PTS_PER_SEC) / 2;
+export const FRACTIONAL_VOL_PER_MINUTE = (AVG_PTS_PER_SEC / REF_BASE) * Math.sqrt(60);
+
 type Listener = () => void;
 
 const prices: Record<string, number> = {};
@@ -21,12 +41,26 @@ const history: Record<string, number[]> = {};
 const listeners = new Set<Listener>();
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
+function perSecondRange(base: number): { min: number; max: number } {
+  const scale = base / REF_BASE;
+  return { min: REF_MIN_PTS_PER_SEC * scale, max: REF_MAX_PTS_PER_SEC * scale };
+}
+
+// One bounded, randomly-signed price step over `seconds` of elapsed time.
+function randomStep(base: number, seconds: number): number {
+  const { min, max } = perSecondRange(base);
+  const ratePerSec = min + Math.random() * (max - min);
+  const sign = Math.random() < 0.5 ? -1 : 1;
+  return sign * ratePerSec * seconds;
+}
+
 function seed() {
   INSTRUMENTS.forEach((ins) => {
     const points: number[] = [];
     let price = ins.base;
     for (let i = 0; i < 12; i++) {
-      price = Math.max(ins.base * 0.85, price + (Math.random() - 0.5) * ins.base * 0.01);
+      // Seed as if the same bounded ticker had already been running.
+      price = Math.max(ins.base * 0.85, price + randomStep(ins.base, TICK_MS / 1000));
       points.push(Math.round(price * 100) / 100);
     }
     history[ins.symbol] = points;
@@ -38,8 +72,7 @@ seed();
 function tick() {
   INSTRUMENTS.forEach((ins) => {
     const prev = prices[ins.symbol] ?? ins.base;
-    const drift = (Math.random() - 0.5) * ins.base * 0.006;
-    let next = prev + drift;
+    let next = prev + randomStep(ins.base, TICK_MS / 1000);
     next = Math.max(ins.base * 0.7, Math.min(ins.base * 1.3, next));
     next = Math.round(next * 100) / 100;
     prices[ins.symbol] = next;

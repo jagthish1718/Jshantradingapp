@@ -7,7 +7,7 @@ import type { ThemeColors } from '../theme/colors';
 import { spacing, radius, fonts } from '../theme/spacing';
 import { STORAGE_KEYS } from '../utils/storage';
 import { INSTRUMENTS } from '../data/instruments';
-import { ensureStarted, subscribe, getPrice, optionPremium, optionSymbol, STARTING_CASH } from '../data/marketSim';
+import { ensureStarted, subscribe, getPrice, optionPremium, optionSymbol, STARTING_CASH, FRACTIONAL_VOL_PER_MINUTE } from '../data/marketSim';
 import type { SimState } from '../types/trading';
 import CandlestickChart, { Candle } from '../components/CandlestickChart';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -35,12 +35,13 @@ const TIMEFRAMES: { key: Timeframe; label: string; minutes: number; count: numbe
   { key: 'M', label: 'Month', minutes: 1440 * 30, count: 24 },
 ];
 
-// Typical swing for a single 1-minute candle — every other interval's
-// per-candle volatility scales off this by sqrt(minutes), same as real
-// price series (volatility grows with the square root of elapsed time).
-const MINUTE_VOL = 0.0006;
+// Every other interval's per-candle volatility scales off the shared
+// 1-minute figure by sqrt(minutes) (volatility grows with the square root
+// of elapsed time). Built from marketSim's own live-tick pace, not a
+// separate hand-tuned number, so a chart's synthetic older candles never
+// look wilder (or calmer) than the real, live-ticking candle next to them.
 function volForMinutes(minutes: number): number {
-  return MINUTE_VOL * Math.sqrt(minutes);
+  return FRACTIONAL_VOL_PER_MINUTE * Math.sqrt(minutes);
 }
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
