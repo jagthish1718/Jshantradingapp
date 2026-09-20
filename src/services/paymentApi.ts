@@ -1,0 +1,162 @@
+import { PAYMENTS_BACKEND_URL } from '../config/apiKeys';
+import { supabase } from '../lib/supabaseClient';
+import type { SubscriptionPlan } from '../data/subscription';
+import type { PremiumTier } from '../data/premiumTiers';
+
+export class PaymentsNotConfiguredError extends Error {}
+export class PaymentApiError extends Error {}
+
+// Shared shape consumed by RazorpayCheckoutModal — both a subscription
+// order and a one-time tier-purchase order carry these same fields.
+export interface CheckoutOrder {
+  orderId: string;
+  amount: number; // paise
+  currency: string;
+  keyId: string;
+  label: string;
+}
+
+export interface OrderInfo extends CheckoutOrder {
+  planId: SubscriptionPlan['id'];
+}
+
+export interface TierOrderInfo extends CheckoutOrder {
+  tier: PremiumTier['tier'];
+}
+
+function requireBackendUrl(): string {
+  if (!PAYMENTS_BACKEND_URL) {
+    throw new PaymentsNotConfiguredError(
+      'Payments backend is not set up yet — add PAYMENTS_BACKEND_URL in src/config/apiKeys.ts once the backend is deployed.'
+    );
+  }
+  return PAYMENTS_BACKEND_URL.replace(/\/$/, '');
+}
+
+// Attaches the signed-in user's Supabase access token so the backend can
+// verify who's actually asking — never trust a user id sent from the app.
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export interface RazorpaySuccessPayload {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+// ---- Subscription plans ----
+
+export async function createOrder(planId: SubscriptionPlan['id']): Promise<OrderInfo> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/create-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ planId }),
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server. Check your internet connection.');
+  }
+  if (res.status === 401) {
+    throw new PaymentApiError('Please sign in to subscribe.');
+  }
+  if (!res.ok) {
+    throw new PaymentApiError('Could not start the payment. Please try again in a moment.');
+  }
+  return (await res.json()) as OrderInfo;
+}
+
+export async function verifyPayment(
+  payload: RazorpaySuccessPayload,
+  planId: SubscriptionPlan['id']
+): Promise<{ verified: boolean; paymentId?: string; currentPeriodEnd?: string | null }> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/verify-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ ...payload, planId }),
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server to confirm your payment.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.verified) {
+    return { verified: false };
+  }
+  return { verified: true, paymentId: data.paymentId, currentPeriodEnd: data.currentPeriodEnd ?? null };
+}
+
+// ---- Account membership status (source of truth lives in Supabase) ----
+
+export interface ServerEntitlements {
+  isSubscribed: boolean;
+  planId: SubscriptionPlan['id'] | null;
+  lastPaymentId: string | null;
+  currentPeriodEnd: string | null;
+}
+
+export async function getEntitlements(): Promise<ServerEntitlements> {
+  const base = requireBackendUrl();
+  const headers = await authHeaders();
+  if (!headers.Authorization) {
+    return { isSubscribed: false, planId: null, lastPaymentId: null, currentPeriodEnd: null };
+  }
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/get-entitlements`, { method: 'GET', headers });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server to load your membership.');
+  }
+  if (!res.ok) {
+    throw new PaymentApiError('Could not load your membership status.');
+  }
+  return (await res.json()) as ServerEntitlements;
+}
+
+// ---- One-time premium lesson-tier purchases ----
+
+export async function createTierOrder(tier: PremiumTier['tier']): Promise<TierOrderInfo> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/create-tier-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tier }),
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server. Check your internet connection.');
+  }
+  if (!res.ok) {
+    throw new PaymentApiError('Could not start the payment. Please try again in a moment.');
+  }
+  return (await res.json()) as TierOrderInfo;
+}
+
+export async function verifyTierPayment(
+  payload: RazorpaySuccessPayload,
+  tier: PremiumTier['tier']
+): Promise<{ verified: boolean; paymentId?: string }> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/verify-tier-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, tier }),
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server to confirm your payment.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.verified) {
+    return { verified: false };
+  }
+  return { verified: true, paymentId: data.paymentId };
+}

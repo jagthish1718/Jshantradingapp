@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Niveshaa",
+    "slug": "nivesha",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Niveshaa uses your photo library so you can set a profile picture."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#2E4BDE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#2E4BDE",
+          "image": "./assets/icon.png",
+          "imageWidth": 120,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Niveshaa uses your photo library so you can set a profile picture."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#2E4BDE"
+        }
+      ]
+    ],
+    "backgroundColor": "#2E4BDE"
+  }
+}
