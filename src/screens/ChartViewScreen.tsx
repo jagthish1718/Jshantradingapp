@@ -299,18 +299,6 @@ export default function ChartViewScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      <View style={styles.quickTradeRow}>
-        <Pressable style={[styles.quickTradeButton, styles.buyButton]} disabled={trading} onPress={() => handleTrade('BUY')}>
-          <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
-          <Text style={styles.quickTradeLabel}>BUY</Text>
-        </Pressable>
-        <Text style={styles.quickTradeHint}>{option ? `Lot ${option.lotSize}` : '1 qty'}</Text>
-        <Pressable style={[styles.quickTradeButton, styles.sellButton]} disabled={trading} onPress={() => handleTrade('SELL')}>
-          <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
-          <Text style={styles.quickTradeLabel}>SELL</Text>
-        </Pressable>
-      </View>
-
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tfRow}>
         {TIMEFRAMES.map((t) => (
           <Pressable
@@ -326,6 +314,18 @@ export default function ChartViewScreen({ navigation, route }: Props) {
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xl }}>
         <View style={styles.chartCard}>
           <CandlestickChart data={candles} width={CHART_WIDTH} height={CHART_HEIGHT} livePrice={livePrice} showVolume />
+        </View>
+
+        <View style={styles.quickTradeRow}>
+          <Pressable style={[styles.quickTradeButton, styles.buyButton]} disabled={trading} onPress={() => handleTrade('BUY')}>
+            <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
+            <Text style={styles.quickTradeLabel}>BUY</Text>
+          </Pressable>
+          <Text style={styles.quickTradeHint}>{option ? `Lot ${option.lotSize}` : '1 qty'}</Text>
+          <Pressable style={[styles.quickTradeButton, styles.sellButton]} disabled={trading} onPress={() => handleTrade('SELL')}>
+            <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
+            <Text style={styles.quickTradeLabel}>SELL</Text>
+          </Pressable>
         </View>
 
         <View style={styles.statsRow}>
@@ -388,11 +388,12 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
     backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
   },
   quickTradeButton: { flex: 1, alignItems: 'center', borderRadius: radius.md, paddingVertical: 9 },
   buyButton: { backgroundColor: colors.primary },
