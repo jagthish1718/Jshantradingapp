@@ -112,15 +112,37 @@ export default function ChartViewScreen({ navigation, route }: Props) {
 
   // Freeze the anchor at first mount so switching timeframes doesn't make
   // the whole chart jump every re-render (only a fresh timeframe redraws).
+  // Always anchored off the UNDERLYING's spot — an option's own candles are
+  // derived from this same series below, never generated independently.
   const anchorRef = useRef<number | null>(null);
-  if (anchorRef.current === null) anchorRef.current = livePrice || instrument.base;
+  if (anchorRef.current === null) anchorRef.current = underlyingSpot || instrument.base;
 
   const tf = TIMEFRAMES.find((t) => t.key === timeframe)!;
-  const candles = useMemo(
-    () => genCandles(anchorRef.current!, tf.count, volForMinutes(tf.minutes)),
+  const candles = useMemo(() => {
+    const underlyingCandles = genCandles(anchorRef.current!, tf.count, volForMinutes(tf.minutes));
+    if (!option) return underlyingCandles;
+
+    // Run every underlying O/H/L/C through the exact same optionPremium()
+    // formula the rest of the app prices this option with — not a separate
+    // random walk. This is what makes the option's chart mathematically
+    // consistent with its LTP, delta and moneyness: a deep ITM strike
+    // tracks the underlying almost 1:1, a far OTM strike barely moves, and
+    // Calls/Puts move opposite directions off the same underlying candle —
+    // all for free, because it's the same pricing function everywhere.
+    const isCall = option.optType === 'CE';
+    return underlyingCandles.map((d) => {
+      const oPrem = optionPremium(d.o, option.strike, isCall);
+      const cPrem = optionPremium(d.c, option.strike, isCall);
+      const hPrem = optionPremium(d.h, option.strike, isCall);
+      const lPrem = optionPremium(d.l, option.strike, isCall);
+      // optionPremium isn't monotonic in the same direction for CE vs PE
+      // (a Put's premium falls as spot rises), so derive the wick's
+      // high/low from all four priced corners rather than assuming order.
+      const vals = [oPrem, cPrem, hPrem, lPrem];
+      return { o: oPrem, h: Math.max(...vals), l: Math.min(...vals), c: cPrem, v: d.v };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [timeframe]
-  );
+  }, [timeframe, option?.strike, option?.optType]);
 
   const first = candles[0];
   const changePct = ((livePrice - first.o) / first.o) * 100;

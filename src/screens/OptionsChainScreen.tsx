@@ -241,31 +241,33 @@ export default function OptionsChainScreen({ navigation }: Props) {
                 <Text style={styles.greekText}>Δ {row.ceDelta.toFixed(2)}</Text>
               </View>
             )}
-            <Pressable style={{ flex: 1 }} onPress={() => goToOrder(row.strike, 'CE', 'BUY')} onLongPress={() => goToOrder(row.strike, 'CE', 'SELL')}>
-              <Text style={styles.ltpText}>{row.ceLtp.toFixed(1)}</Text>
-              <Text style={[styles.chngText, { color: row.ceChange >= 0 ? colors.success : colors.danger }]}>
-                {row.ceChange >= 0 ? '+' : ''}
-                {row.ceChange.toFixed(1)}%
-              </Text>
-            </Pressable>
-            <View style={{ flex: 0.9, alignItems: 'center' }}>
-              <Text style={[styles.strikeText, row.isAtm && styles.strikeTextAtm]}>{row.strike}</Text>
-              <Pressable
-                style={styles.chartIconBtn}
-                onPress={() => goToChart(row.strike, 'CE')}
-                onLongPress={() => goToChart(row.strike, 'PE')}
-                hitSlop={6}
-              >
-                <Ionicons name="stats-chart-outline" size={11} color={colors.textMuted} />
+            <View style={{ flex: 1, alignItems: 'flex-start' }}>
+              <Pressable onPress={() => goToOrder(row.strike, 'CE', 'BUY')} onLongPress={() => goToOrder(row.strike, 'CE', 'SELL')}>
+                <Text style={styles.ltpText}>{row.ceLtp.toFixed(1)}</Text>
+                <Text style={[styles.chngText, { color: row.ceChange >= 0 ? colors.success : colors.danger }]}>
+                  {row.ceChange >= 0 ? '+' : ''}
+                  {row.ceChange.toFixed(1)}%
+                </Text>
+              </Pressable>
+              <Pressable style={styles.chartIconBtn} onPress={() => goToChart(row.strike, 'CE')} hitSlop={6}>
+                <Ionicons name="stats-chart-outline" size={10} color={colors.textMuted} />
+                <Text style={styles.chartIconLabel}>Chart</Text>
               </Pressable>
             </View>
-            <Pressable style={{ flex: 1 }} onPress={() => goToOrder(row.strike, 'PE', 'BUY')} onLongPress={() => goToOrder(row.strike, 'PE', 'SELL')}>
-              <Text style={[styles.ltpText, { textAlign: 'right' }]}>{row.peLtp.toFixed(1)}</Text>
-              <Text style={[styles.chngText, { color: row.peChange >= 0 ? colors.success : colors.danger, textAlign: 'right' }]}>
-                {row.peChange >= 0 ? '+' : ''}
-                {row.peChange.toFixed(1)}%
-              </Text>
-            </Pressable>
+            <Text style={[styles.strikeText, { flex: 0.9 }, row.isAtm && styles.strikeTextAtm]}>{row.strike}</Text>
+            <View style={{ flex: 1, alignItems: 'flex-end' }}>
+              <Pressable onPress={() => goToOrder(row.strike, 'PE', 'BUY')} onLongPress={() => goToOrder(row.strike, 'PE', 'SELL')}>
+                <Text style={[styles.ltpText, { textAlign: 'right' }]}>{row.peLtp.toFixed(1)}</Text>
+                <Text style={[styles.chngText, { color: row.peChange >= 0 ? colors.success : colors.danger, textAlign: 'right' }]}>
+                  {row.peChange >= 0 ? '+' : ''}
+                  {row.peChange.toFixed(1)}%
+                </Text>
+              </Pressable>
+              <Pressable style={styles.chartIconBtn} onPress={() => goToChart(row.strike, 'PE')} hitSlop={6}>
+                <Text style={styles.chartIconLabel}>Chart</Text>
+                <Ionicons name="stats-chart-outline" size={10} color={colors.textMuted} />
+              </Pressable>
+            </View>
             {mode === 'OI' ? (
               <Text style={[styles.oiText, { flex: 1.3, textAlign: 'right' }]}>{formatOi(row.peOiRaw)}</Text>
             ) : (
@@ -280,8 +282,8 @@ export default function OptionsChainScreen({ navigation }: Props) {
         <View style={styles.demoBanner}>
           <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
           <Text style={styles.demoBannerText}>
-            Tap a price to Buy, long-press to Sell/Write. Tap the chart icon under a strike for its Call chart,
-            long-press it for the Put chart. Simulated premiums, OI & Greeks for practice — the full order screen has
+            Tap a price to Buy, long-press to Sell/Write. Tap "Chart" under a Call or Put premium for that
+            option's own live chart. Simulated premiums, OI & Greeks for practice — the full order screen has
             Stoploss, GTT, Iceberg, Market Protection and Validity, just like a real broker.
           </Text>
         </View>
@@ -359,7 +361,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   chngText: { fontFamily: fonts.regular, fontSize: 9.5, marginTop: 1 },
   strikeText: { fontFamily: fonts.bold, fontSize: 12.5, color: colors.text, textAlign: 'center' },
   strikeTextAtm: { color: colors.primary },
-  chartIconBtn: { marginTop: 2, padding: 2 },
+  chartIconBtn: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2, paddingVertical: 2, paddingHorizontal: 3 },
+  chartIconLabel: { fontFamily: fonts.regular, fontSize: 8.5, color: colors.textMuted },
   demoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
