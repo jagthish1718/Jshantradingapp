@@ -420,7 +420,22 @@ export default function OptionOrderScreen({ navigation, route }: Props) {
               </Pressable>
             </View>
           </View>
-          <Text style={styles.qtyHint}>{qty} qty total ({lotSize} × {lots} lot{lots > 1 ? 's' : ''})</Text>
+          <View style={styles.breakdownCard}>
+            <View style={styles.breakdownCell}>
+              <Text style={styles.breakdownValue}>{lots}</Text>
+              <Text style={styles.breakdownLabel}>Lot{lots > 1 ? 's' : ''}</Text>
+            </View>
+            <Text style={styles.breakdownOperator}>×</Text>
+            <View style={styles.breakdownCell}>
+              <Text style={styles.breakdownValue}>{lotSize}</Text>
+              <Text style={styles.breakdownLabel}>Qty / Lot</Text>
+            </View>
+            <Text style={styles.breakdownOperator}>=</Text>
+            <View style={[styles.breakdownCell, styles.breakdownCellTotal]}>
+              <Text style={[styles.breakdownValue, styles.breakdownValueTotal]}>{qty}</Text>
+              <Text style={styles.breakdownLabel}>Total Qty</Text>
+            </View>
+          </View>
 
           {orderKind === 'Iceberg' && (
             <View style={{ marginTop: spacing.sm }}>
@@ -612,6 +627,24 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   fieldLabel: { fontFamily: fonts.medium, fontSize: 13, color: colors.text },
   qtyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   qtyHint: { fontFamily: fonts.regular, fontSize: 11.5, color: colors.textMuted, marginTop: 4 },
+  breakdownCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.background,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  breakdownCell: { flex: 1, alignItems: 'center' },
+  breakdownCellTotal: { backgroundColor: colors.primaryLight, borderRadius: radius.sm, paddingVertical: 4 },
+  breakdownValue: { fontFamily: fonts.bold, fontSize: 18, color: colors.text },
+  breakdownValueTotal: { color: colors.primary, fontSize: 20 },
+  breakdownLabel: { fontFamily: fonts.regular, fontSize: 10, color: colors.textMuted, marginTop: 2 },
+  breakdownOperator: { fontFamily: fonts.semiBold, fontSize: 16, color: colors.textMuted, marginHorizontal: 2 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   stepperBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   stepperValue: { fontFamily: fonts.semiBold, fontSize: 14, color: colors.text, minWidth: 20, textAlign: 'center' },

@@ -1,10 +1,14 @@
-import { useMemo, useState } from 'react';
-import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { spacing, radius, fonts } from '../theme/spacing';
+import { STORAGE_KEYS } from '../utils/storage';
 import { INSTRUMENTS } from '../data/instruments';
+import { ensureStarted, subscribe, getPrice, STARTING_CASH } from '../data/marketSim';
+import type { SimState } from '../types/trading';
 import CandlestickChart, { Candle } from '../components/CandlestickChart';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
@@ -19,8 +23,12 @@ const TIMEFRAMES: { key: Timeframe; count: number; volPct: number }[] = [
   { key: '1Y', count: 52, volPct: 0.034 },
 ];
 
-function genCandles(base: number, count: number, volPct: number): Candle[] {
-  const candles: Candle[] = [];
+// Anchored so the series always ends exactly at `anchorPrice` — keeps the
+// static candle shape consistent with the live price line drawn on top of
+// it (see CandlestickChart's `livePrice` prop).
+function genCandles(anchorPrice: number, count: number, volPct: number): Candle[] {
+  const base = anchorPrice;
+  const raw: Candle[] = [];
   let price = base * (0.94 + Math.random() * 0.06);
   for (let i = 0; i < count; i++) {
     const o = price;
@@ -29,15 +37,18 @@ function genCandles(base: number, count: number, volPct: number): Candle[] {
     const wick = base * volPct * 0.7;
     const h = Math.max(o, c) + Math.random() * wick;
     const l = Math.max(base * 0.4, Math.min(o, c) - Math.random() * wick);
-    candles.push({
-      o: Math.round(o * 100) / 100,
-      h: Math.round(h * 100) / 100,
-      l: Math.round(l * 100) / 100,
-      c: Math.round(c * 100) / 100,
-    });
+    const v = Math.round(40000 + Math.random() * 160000);
+    raw.push({ o, h, l, c, v });
     price = c;
   }
-  return candles;
+  const drift = anchorPrice - raw[raw.length - 1].c;
+  return raw.map((d) => ({
+    o: Math.round((d.o + drift) * 100) / 100,
+    h: Math.round((d.h + drift) * 100) / 100,
+    l: Math.round((d.l + drift) * 100) / 100,
+    c: Math.round((d.c + drift) * 100) / 100,
+    v: d.v,
+  }));
 }
 
 function formatRupees(n: number) {
@@ -52,21 +63,102 @@ export default function ChartViewScreen({ navigation, route }: Props) {
   const { symbol } = route.params;
   const instrument = INSTRUMENTS.find((i) => i.symbol === symbol) ?? INSTRUMENTS[0];
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
+  const [trading, setTrading] = useState(false);
+
+  const [, bump] = useState(0);
+  useEffect(() => {
+    ensureStarted();
+    const unsub = subscribe(() => bump((n) => n + 1));
+    return unsub;
+  }, []);
+
+  const livePrice = getPrice(instrument.symbol);
+
+  // Freeze the anchor at first mount so switching timeframes doesn't make
+  // the whole chart jump every re-render (only a fresh timeframe redraws).
+  const anchorRef = useRef<number | null>(null);
+  if (anchorRef.current === null) anchorRef.current = livePrice || instrument.base;
 
   const tf = TIMEFRAMES.find((t) => t.key === timeframe)!;
   const candles = useMemo(
-    () => genCandles(instrument.base, tf.count, tf.volPct),
+    () => genCandles(anchorRef.current!, tf.count, tf.volPct),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [instrument.symbol, timeframe]
+    [timeframe]
   );
 
-  const last = candles[candles.length - 1];
   const first = candles[0];
-  const changePct = ((last.c - first.o) / first.o) * 100;
+  const changePct = ((livePrice - first.o) / first.o) * 100;
   const trendColor = changePct >= 0 ? colors.success : colors.danger;
 
-  const periodHigh = Math.max(...candles.map((c) => c.h));
-  const periodLow = Math.min(...candles.map((c) => c.l));
+  const periodHigh = Math.max(...candles.map((c) => c.h), livePrice);
+  const periodLow = Math.min(...candles.map((c) => c.l), livePrice);
+
+  // One-click 1-qty market order, straight off the chart — same pattern
+  // Kite's own BUY/SELL price buttons use. Reads/writes AsyncStorage
+  // directly so it works no matter which tab of Paper Trading you came
+  // from; that screen re-syncs on focus, so it'll show up there too.
+  const quickTrade = async (side: 'BUY' | 'SELL') => {
+    setTrading(true);
+    const price = getPrice(instrument.symbol);
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.paperTrading);
+      const sim: SimState = raw
+        ? { cash: STARTING_CASH, holdings: [], orders: [], ...JSON.parse(raw) }
+        : { cash: STARTING_CASH, holdings: [], orders: [] };
+      if (!Array.isArray(sim.holdings)) sim.holdings = [];
+      if (!Array.isArray(sim.orders)) sim.orders = [];
+
+      if (side === 'BUY') {
+        if (price > sim.cash) {
+          Alert.alert('Not enough cash', `You need ${formatRupees(price)} but only have ${formatRupees(sim.cash)} available.`);
+          return;
+        }
+        const existing = sim.holdings.find((h) => h.symbol === instrument.symbol);
+        if (existing) {
+          const newQty = existing.qty + 1;
+          existing.avgPrice = (existing.avgPrice * existing.qty + price) / newQty;
+          existing.qty = newQty;
+        } else {
+          sim.holdings.push({
+            symbol: instrument.symbol,
+            qty: 1,
+            avgPrice: price,
+            stopLoss: null,
+            target: null,
+            trailingPercent: null,
+            trailingHigh: null,
+          });
+        }
+        sim.cash -= price;
+      } else {
+        const existing = sim.holdings.find((h) => h.symbol === instrument.symbol && h.qty > 0);
+        if (!existing) {
+          Alert.alert('No position', `You don't hold any ${instrument.symbol} to sell yet.`);
+          return;
+        }
+        existing.qty -= 1;
+        sim.cash += price;
+        if (existing.qty <= 0) sim.holdings = sim.holdings.filter((h) => h.symbol !== instrument.symbol);
+      }
+
+      sim.orders.unshift({
+        id: `${Date.now()}-chart-${side.toLowerCase()}`,
+        symbol: instrument.symbol,
+        side,
+        qty: 1,
+        price,
+        reason: 'Manual',
+        timestamp: new Date().toISOString(),
+      });
+
+      await AsyncStorage.setItem(STORAGE_KEYS.paperTrading, JSON.stringify(sim));
+      Alert.alert(side === 'BUY' ? 'Bought' : 'Sold', `1 qty of ${instrument.symbol} @ ${formatRupees(price)}`);
+    } catch {
+      Alert.alert('Something went wrong', 'Could not place this order — please try again.');
+    } finally {
+      setTrading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.root}>
@@ -81,12 +173,24 @@ export default function ChartViewScreen({ navigation, route }: Props) {
           </View>
         </View>
         <View style={styles.priceRow}>
-          <Text style={styles.headerPrice}>{formatRupees(last.c)}</Text>
+          <Text style={styles.headerPrice}>{formatRupees(livePrice)}</Text>
           <Text style={[styles.headerChange, { color: '#fff', backgroundColor: trendColor }]}>
             {changePct >= 0 ? '+' : ''}
             {changePct.toFixed(2)}%
           </Text>
         </View>
+      </View>
+
+      <View style={styles.quickTradeRow}>
+        <Pressable style={[styles.quickTradeButton, styles.buyButton]} disabled={trading} onPress={() => quickTrade('BUY')}>
+          <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
+          <Text style={styles.quickTradeLabel}>BUY</Text>
+        </Pressable>
+        <Text style={styles.quickTradeHint}>1 qty</Text>
+        <Pressable style={[styles.quickTradeButton, styles.sellButton]} disabled={trading} onPress={() => quickTrade('SELL')}>
+          <Text style={styles.quickTradePrice}>{formatRupees(livePrice)}</Text>
+          <Text style={styles.quickTradeLabel}>SELL</Text>
+        </Pressable>
       </View>
 
       <View style={styles.tfRow}>
@@ -103,7 +207,7 @@ export default function ChartViewScreen({ navigation, route }: Props) {
 
       <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
         <View style={styles.chartCard}>
-          <CandlestickChart data={candles} width={310} height={200} />
+          <CandlestickChart data={candles} width={294} height={220} livePrice={livePrice} showVolume />
         </View>
 
         <View style={styles.statsRow}>
@@ -121,14 +225,15 @@ export default function ChartViewScreen({ navigation, route }: Props) {
           </View>
           <View style={styles.statCell}>
             <Text style={styles.statLabel}>LTP</Text>
-            <Text style={styles.statValue}>{formatRupees(last.c)}</Text>
+            <Text style={styles.statValue}>{formatRupees(livePrice)}</Text>
           </View>
         </View>
 
         <View style={styles.demoBanner}>
           <Ionicons name="information-circle-outline" size={16} color={colors.primary} />
           <Text style={styles.demoBannerText}>
-            Simulated candlestick data for practice — regenerates each time you switch timeframe.
+            Drag on the chart for a crosshair readout. The dashed line tracks the live price — same feed as
+            everywhere else in Paper Trading. Older candles are simulated for practice.
           </Text>
         </View>
       </ScrollView>
@@ -160,6 +265,22 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: radius.sm,
     overflow: 'hidden',
   },
+  quickTradeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  quickTradeButton: { flex: 1, alignItems: 'center', borderRadius: radius.md, paddingVertical: 9 },
+  buyButton: { backgroundColor: colors.primary },
+  sellButton: { backgroundColor: colors.danger },
+  quickTradePrice: { fontFamily: fonts.bold, fontSize: 14, color: '#fff' },
+  quickTradeLabel: { fontFamily: fonts.semiBold, fontSize: 10.5, color: 'rgba(255,255,255,0.85)', marginTop: 1, letterSpacing: 0.5 },
+  quickTradeHint: { fontFamily: fonts.regular, fontSize: 10.5, color: colors.textLight },
   tfRow: {
     flexDirection: 'row',
     gap: spacing.sm,
