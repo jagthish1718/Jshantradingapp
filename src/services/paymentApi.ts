@@ -139,6 +139,51 @@ export async function createTierOrder(tier: PremiumTier['tier']): Promise<TierOr
   return (await res.json()) as TierOrderInfo;
 }
 
+// ---- Paper Trading balance refill (one-time, no login required — the
+// balance itself is local/on-device, not tied to a Supabase account) ----
+
+export interface RefillOrderInfo extends CheckoutOrder {
+  virtualCash: number;
+}
+
+export async function createRefillOrder(): Promise<RefillOrderInfo> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/create-refill-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server. Check your internet connection.');
+  }
+  if (!res.ok) {
+    throw new PaymentApiError('Could not start the payment. Please try again in a moment.');
+  }
+  return (await res.json()) as RefillOrderInfo;
+}
+
+export async function verifyRefillPayment(
+  payload: RazorpaySuccessPayload
+): Promise<{ verified: boolean; paymentId?: string }> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/verify-refill-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server to confirm your payment.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.verified) {
+    return { verified: false };
+  }
+  return { verified: true, paymentId: data.paymentId };
+}
+
 export async function verifyTierPayment(
   payload: RazorpaySuccessPayload,
   tier: PremiumTier['tier']

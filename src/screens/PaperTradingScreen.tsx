@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView, Alert, Switch, TextInput, Animated } from 'react-native';
+import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView, Alert, Switch, TextInput, Animated, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../context/ThemeContext';
@@ -12,7 +12,17 @@ import { ensureStarted, subscribe, getPrice, getHistory, getLivePrice, STARTING_
 import type { Holding, OrderReason, OrderRecord, SimState } from '../types/trading';
 import { totalBlockedMargin } from '../types/trading';
 import { useEntitlements } from '../context/EntitlementsContext';
+import { useProfile } from '../context/ProfileContext';
 import SubscriptionGate from '../components/SubscriptionGate';
+import RazorpayCheckoutModal from '../components/RazorpayCheckoutModal';
+import {
+  createRefillOrder,
+  verifyRefillPayment,
+  RefillOrderInfo,
+  PaymentsNotConfiguredError,
+  PaymentApiError,
+  RazorpaySuccessPayload,
+} from '../services/paymentApi';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
@@ -42,8 +52,13 @@ export default function PaperTradingScreen({ navigation }: Props) {
   const reasonColor = getReasonColor(colors);
   const [loaded, setLoaded] = useState(false);
   const { isSubscribed } = useEntitlements();
+  const { name } = useProfile();
   const [, bump] = useState(0);
   const rerender = () => bump((n) => n + 1);
+
+  const [refillOrder, setRefillOrder] = useState<RefillOrderInfo | null>(null);
+  const [refillCheckoutVisible, setRefillCheckoutVisible] = useState(false);
+  const [refilling, setRefilling] = useState(false);
 
   const simRef = useRef<SimState>(defaultSim);
   const equityHistoryRef = useRef<number[]>([]);
@@ -347,6 +362,54 @@ export default function PaperTradingScreen({ navigation }: Props) {
     rerender();
   };
 
+  // Paid balance top-up — adds virtual cash without wiping your existing
+  // positions or order history (unlike "Reset portfolio", which is free
+  // but starts you over from scratch).
+  const startRefill = async () => {
+    setRefilling(true);
+    try {
+      const newOrder = await createRefillOrder();
+      setRefillOrder(newOrder);
+      setRefillCheckoutVisible(true);
+    } catch (err) {
+      if (err instanceof PaymentsNotConfiguredError) {
+        Alert.alert('Payments not set up yet', 'The payments backend URL is still empty in src/config/apiKeys.ts.');
+      } else if (err instanceof PaymentApiError) {
+        Alert.alert('Could not start payment', err.message);
+      } else {
+        Alert.alert('Something went wrong', 'Please try again.');
+      }
+    } finally {
+      setRefilling(false);
+    }
+  };
+
+  const handleRefillSuccess = async (payload: RazorpaySuccessPayload) => {
+    if (!refillOrder) return;
+    setRefillCheckoutVisible(false);
+    try {
+      const result = await verifyRefillPayment(payload);
+      if (result.verified) {
+        simRef.current.cash += refillOrder.virtualCash;
+        persistSim();
+        rerender();
+        Alert.alert('Refilled!', `${formatRupees(refillOrder.virtualCash)} added to your Paper Trading balance.`);
+      } else {
+        Alert.alert(
+          'Payment could not be verified',
+          "Your payment went through on Razorpay's side but we couldn't confirm it. Please contact support with your payment id."
+        );
+      }
+    } catch {
+      Alert.alert(
+        'Payment could not be verified',
+        "Your payment went through on Razorpay's side but we couldn't confirm it. Please contact support."
+      );
+    } finally {
+      setRefillOrder(null);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.root}>
       <View style={styles.header}>
@@ -372,6 +435,20 @@ export default function PaperTradingScreen({ navigation }: Props) {
           <Text style={styles.headerMargin}>Margin blocked (written options): {formatRupees(blockedMargin)}</Text>
         )}
       </View>
+
+      {portfolioValue < STARTING_CASH * 0.1 && (
+        <View style={styles.refillBanner}>
+          <Ionicons name="alert-circle-outline" size={16} color={colors.gold} />
+          <Text style={styles.refillBannerText}>Balance kammiya poyiduchu — refill pannikonga.</Text>
+          <Pressable style={styles.refillBannerButton} disabled={refilling} onPress={startRefill}>
+            {refilling ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.refillBannerButtonText}>Refill ₹29</Text>
+            )}
+          </Pressable>
+        </View>
+      )}
 
       <View style={styles.tabRow}>
         {(['market', 'portfolio', 'orders'] as TabKey[]).map((t) => (
@@ -567,10 +644,18 @@ export default function PaperTradingScreen({ navigation }: Props) {
               );
             })}
 
-            <Pressable style={styles.resetButton} onPress={resetPortfolio}>
-              <Ionicons name="refresh-outline" size={15} color={colors.textMuted} />
-              <Text style={styles.resetButtonText}>Reset portfolio</Text>
-            </Pressable>
+            <View style={styles.resetRow}>
+              <Pressable style={styles.resetButton} onPress={resetPortfolio}>
+                <Ionicons name="refresh-outline" size={15} color={colors.textMuted} />
+                <Text style={styles.resetButtonText}>Reset portfolio</Text>
+              </Pressable>
+              <Pressable style={styles.refillLink} disabled={refilling} onPress={startRefill}>
+                <Ionicons name="add-circle-outline" size={15} color={colors.primary} />
+                <Text style={styles.refillLinkText}>
+                  {refilling ? 'Starting…' : `Refill ${formatRupees(STARTING_CASH)} — ₹29`}
+                </Text>
+              </Pressable>
+            </View>
           </>
         )}
 
@@ -734,6 +819,18 @@ export default function PaperTradingScreen({ navigation }: Props) {
           </>
         )}
       </ScrollView>
+
+      <RazorpayCheckoutModal
+        visible={refillCheckoutVisible}
+        order={refillOrder}
+        userName={name}
+        onSuccess={handleRefillSuccess}
+        onDismiss={() => {
+          setRefillCheckoutVisible(false);
+          setRefillOrder(null);
+        }}
+        onDebug={(msg) => console.log('[Razorpay refill]', msg)}
+      />
     </SafeAreaView>
   );
 }
@@ -902,15 +999,37 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   tradeButtonDisabled: { backgroundColor: colors.border },
   tradeButtonText: { fontFamily: fonts.semiBold, fontSize: 13.5, color: '#fff' },
   tradeButtonTextDisabled: { color: colors.textLight },
-  resetButton: {
+  resetRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    flexWrap: 'wrap',
+    gap: spacing.lg,
     marginTop: spacing.lg,
     marginBottom: spacing.xl,
   },
+  resetButton: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   resetButtonText: { fontFamily: fonts.medium, fontSize: 12.5, color: colors.textMuted },
+  refillLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  refillLinkText: { fontFamily: fonts.semiBold, fontSize: 12.5, color: colors.primary },
+  refillBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.goldBg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  refillBannerText: { flex: 1, fontFamily: fonts.medium, fontSize: 12, color: colors.text },
+  refillBannerButton: {
+    backgroundColor: colors.gold,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    minWidth: 72,
+    alignItems: 'center',
+  },
+  refillBannerButtonText: { fontFamily: fonts.bold, fontSize: 12, color: '#fff' },
   chartCard: {
     borderWidth: 1,
     borderColor: colors.border,
