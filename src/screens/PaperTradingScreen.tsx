@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView, Alert, Switch, TextInput, Animated } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,7 @@ import type { Holding, OrderReason, OrderRecord, SimState } from '../types/tradi
 import { totalBlockedMargin } from '../types/trading';
 import { useEntitlements } from '../context/EntitlementsContext';
 import SubscriptionGate from '../components/SubscriptionGate';
+import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
 
@@ -84,6 +85,31 @@ export default function PaperTradingScreen({ navigation }: Props) {
       }
     })();
   }, []);
+
+  // Re-sync from storage every time this screen gains focus. Orders placed
+  // on the Options Chain / Order screen write straight to AsyncStorage —
+  // without this, this screen's in-memory copy would stay stale and could
+  // even overwrite that newer data the next time something here persists.
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        try {
+          const raw = await AsyncStorage.getItem(STORAGE_KEYS.paperTrading);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            simRef.current = {
+              cash: typeof parsed.cash === 'number' ? parsed.cash : STARTING_CASH,
+              holdings: Array.isArray(parsed.holdings) ? parsed.holdings : [],
+              orders: Array.isArray(parsed.orders) ? parsed.orders : [],
+            };
+            rerender();
+          }
+        } catch {
+          // ignore — keep whatever was already in memory
+        }
+      })();
+    }, [])
+  );
 
   // The "LIVE" pulsing dot.
   useEffect(() => {
@@ -646,9 +672,20 @@ export default function PaperTradingScreen({ navigation }: Props) {
                       </View>
                     )}
 
-                    <Pressable style={styles.closeButton} onPress={() => closePosition(h.symbol)}>
-                      <Text style={styles.closeButtonText}>{isShort ? 'Buy to cover' : 'Close position'}</Text>
-                    </Pressable>
+                    <View style={styles.holdingActionsRow}>
+                      <Pressable style={styles.closeButton} onPress={() => closePosition(h.symbol)}>
+                        <Text style={styles.closeButtonText}>{isShort ? 'Buy to cover' : 'Close position'}</Text>
+                      </Pressable>
+                      {isOption && (
+                        <Pressable
+                          style={styles.chartLinkButton}
+                          onPress={() => navigation.navigate('ChartView', { symbol: h.option!.underlying })}
+                        >
+                          <Ionicons name="stats-chart-outline" size={13} color={colors.primary} />
+                          <Text style={styles.chartLinkButtonText}>{h.option!.underlying} chart</Text>
+                        </Pressable>
+                      )}
+                    </View>
                   </View>
                 );
               })
@@ -911,7 +948,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   ruleTagText: { fontFamily: fonts.semiBold, fontSize: 10.5 },
   closeButton: {
     alignSelf: 'flex-start',
-    marginTop: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
@@ -919,6 +955,18 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingVertical: 6,
   },
   closeButtonText: { fontFamily: fonts.semiBold, fontSize: 12, color: colors.textMuted },
+  holdingActionsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
+  chartLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  chartLinkButtonText: { fontFamily: fonts.semiBold, fontSize: 12, color: colors.primary },
   orderCard: {
     flexDirection: 'row',
     alignItems: 'center',
