@@ -355,13 +355,6 @@ export default function PaperTradingScreen({ navigation }: Props) {
     rerender();
   };
 
-  const resetPortfolio = () => {
-    simRef.current = { ...defaultSim };
-    equityHistoryRef.current = [];
-    persistSim();
-    rerender();
-  };
-
   // Paid balance top-up — adds virtual cash without wiping your existing
   // positions or order history (unlike "Reset portfolio", which is free
   // but starts you over from scratch).
@@ -645,10 +638,6 @@ export default function PaperTradingScreen({ navigation }: Props) {
             })}
 
             <View style={styles.resetRow}>
-              <Pressable style={styles.resetButton} onPress={resetPortfolio}>
-                <Ionicons name="refresh-outline" size={15} color={colors.textMuted} />
-                <Text style={styles.resetButtonText}>Reset portfolio</Text>
-              </Pressable>
               <Pressable style={styles.refillLink} disabled={refilling} onPress={startRefill}>
                 <Ionicons name="add-circle-outline" size={15} color={colors.primary} />
                 <Text style={styles.refillLinkText}>
@@ -834,7 +823,12 @@ export default function PaperTradingScreen({ navigation }: Props) {
           setRefillCheckoutVisible(false);
           setRefillOrder(null);
         }}
-        onDebug={(msg) => console.log('[Razorpay refill]', msg)}
+        onDebug={(msg) => {
+          console.log('[Razorpay refill]', msg);
+          if (msg.startsWith('[error]') || msg.startsWith('[failed]') || msg.startsWith('[webview error]') || msg.startsWith('[http error]')) {
+            Alert.alert('Payment debug', msg);
+          }
+        }}
       />
     </SafeAreaView>
   );
@@ -1013,8 +1007,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.xl,
   },
-  resetButton: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  resetButtonText: { fontFamily: fonts.medium, fontSize: 12.5, color: colors.textMuted },
   refillLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   refillLinkText: { fontFamily: fonts.semiBold, fontSize: 12.5, color: colors.primary },
   refillBanner: {
