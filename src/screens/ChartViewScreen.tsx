@@ -299,17 +299,21 @@ export default function ChartViewScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tfRow}>
-        {TIMEFRAMES.map((t) => (
-          <Pressable
-            key={t.key}
-            style={[styles.tfChip, timeframe === t.key && styles.tfChipActive]}
-            onPress={() => setTimeframe(t.key)}
-          >
-            <Text style={[styles.tfChipText, timeframe === t.key && styles.tfChipTextActive]}>{t.label}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      <View style={styles.tfRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tfRowContent}>
+          {TIMEFRAMES.map((t) => (
+            <Pressable
+              key={t.key}
+              style={[styles.tfChip, timeframe === t.key && styles.tfChipActive]}
+              onPress={() => setTimeframe(t.key)}
+            >
+              <Text style={[styles.tfChipText, timeframe === t.key && styles.tfChipTextActive]} numberOfLines={1}>
+                {t.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xl }}>
         <View style={styles.chartCard}>
@@ -402,18 +406,22 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   quickTradeLabel: { fontFamily: fonts.semiBold, fontSize: 10.5, color: 'rgba(255,255,255,0.85)', marginTop: 1, letterSpacing: 0.5 },
   quickTradeHint: { fontFamily: fonts.regular, fontSize: 10.5, color: colors.textLight },
   tfRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    paddingVertical: spacing.md,
+  },
+  tfRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
   },
   tfChip: {
     alignItems: 'center',
     justifyContent: 'center',
     minWidth: 40,
+    minHeight: 34,
     paddingVertical: 9,
     paddingHorizontal: spacing.sm + 2,
     borderRadius: radius.pill,
