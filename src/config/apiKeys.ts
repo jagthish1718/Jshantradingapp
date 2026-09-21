@@ -14,10 +14,12 @@ export const TWELVE_DATA_API_KEY = '79fc4774d9834a558ab4695acf8a3f0a';
 // free: 750 requests/month, 25/day, 6/min
 export const IPOALERTS_API_KEY = '66bd916f07562ee38abced98549f3e1e006b4a8b89c9a0fd003a285c14c58d20';
 
-// AI Coach chat — Google Gemini (AI Studio) — https://aistudio.google.com/apikey
-// free tier, no credit card. Sign in with your Google account, click
-// "Create API key", copy it here.
-export const GEMINI_API_KEY = 'AQ.Ab8RN6JqMgooSMCowzZRngfXE8drG4-m3WkYstqoWdIXwIWNIg';
+// AI Coach chat — Google Gemini. The key now lives ONLY on the backend
+// (nivesha-payments-backend's GEMINI_API_KEY env var on Vercel) — the app
+// calls /api/ai-coach instead of Gemini directly, so no key belongs here.
+// The old key that used to live in this file was shipped in the app bundle
+// and is in git history, so it should be revoked/rotated in Google AI
+// Studio and a fresh key pasted into Vercel's env vars, not back here.
 
 // Payments — Razorpay via a tiny serverless backend (never call Razorpay
 // directly from the app — the secret key must stay server-side).

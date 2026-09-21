@@ -1,13 +1,8 @@
-import { GEMINI_API_KEY } from '../config/apiKeys';
+import { PAYMENTS_BACKEND_URL } from '../config/apiKeys';
 import type { LangCode } from '../data/languages';
 
 export class ApiKeyMissingError extends Error {}
 export class CoachApiError extends Error {}
-
-// gemini-3.5-flash-lite: Google's fastest model, tuned for quick chat replies
-// (this app needs short, punchy coaching answers, not long essays), free tier.
-const MODEL = 'gemini-3.5-flash-lite';
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 export interface ChatTurn {
   role: 'user' | 'model';
@@ -45,51 +40,41 @@ function buildSystemInstruction(
   return instruction;
 }
 
+// The actual Gemini call now happens server-side (nivesha-payments-backend's
+// /api/ai-coach) so the API key never ships inside the app bundle — this
+// just builds the prompt and relays it.
 export async function askCoach(
   history: ChatTurn[],
   opts: { lessonTitle: string | null; lessonContext: string | null; language: LangCode }
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
+  if (!PAYMENTS_BACKEND_URL) {
     throw new ApiKeyMissingError();
   }
 
-  const body = {
-    systemInstruction: {
-      parts: [{ text: buildSystemInstruction(opts.lessonTitle, opts.lessonContext, opts.language) }],
-    },
-    contents: history.map((t) => ({
-      role: t.role,
-      parts: [{ text: t.text }],
-    })),
-    generationConfig: {
-      temperature: 0.6,
-      maxOutputTokens: 220,
-    },
-  };
+  const systemInstruction = buildSystemInstruction(opts.lessonTitle, opts.lessonContext, opts.language);
 
   let res: Response;
   try {
-    res = await fetch(`${ENDPOINT}?key=${GEMINI_API_KEY}`, {
+    res = await fetch(`${PAYMENTS_BACKEND_URL}/api/ai-coach`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ history, systemInstruction }),
     });
   } catch (e) {
     throw new CoachApiError('Network error reaching the AI coach. Check your internet connection.');
   }
 
   if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    if (res.status === 400 || res.status === 401 || res.status === 403) {
+    if (res.status === 500) {
       throw new ApiKeyMissingError();
     }
     throw new CoachApiError(`AI coach is having trouble right now (${res.status}). Try again in a bit.`);
   }
 
   const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? '').join('') ?? '';
-  if (!text.trim()) {
+  const text = (json?.text ?? '').trim();
+  if (!text) {
     throw new CoachApiError('The AI coach could not come up with an answer. Try rephrasing your question.');
   }
-  return text.trim();
+  return text;
 }
