@@ -11,24 +11,24 @@ interface ServerEntitlementsState {
   planId: PlanId | null;
   lastPaymentId: string | null;
   currentPeriodEnd: string | null;
+  purchasedBooks: string[];
 }
 
-// unlockedTiers/purchasedBooks are still a local, per-device demo (Books
-// isn't wired to real payment yet — see BooksScreen). Real membership
-// status (isSubscribed/planId/lastPaymentId/currentPeriodEnd) now lives in
-// Supabase, tied to the signed-in account, and is only ever read here —
-// never written from the client — so reinstalling the app can't reset it.
+// unlockedTiers is still a local, per-device demo — tiers are no longer
+// sold separately (see PremiumScreen). Everything else — membership status
+// and now purchasedBooks too — lives in Supabase, tied to the signed-in
+// account, and is only ever read here — never written from the client —
+// so reinstalling the app can't reset or fake it.
 interface LocalEntitlementsState {
   unlockedTiers: string[];
-  purchasedBooks: string[];
 }
 
 interface EntitlementsContextValue extends ServerEntitlementsState, LocalEntitlementsState {
   loaded: boolean;
   refreshEntitlements: () => Promise<void>;
   applyOptimisticSubscription: (planId: PlanId, paymentId: string, currentPeriodEnd?: string | null) => void;
+  applyOptimisticBookPurchase: (bookId: string, purchasedBooks?: string[]) => void;
   unlockTier: (tier: string) => void;
-  buyBook: (bookId: string) => void;
   resetEntitlements: () => void;
 }
 
@@ -37,10 +37,10 @@ const defaultServerState: ServerEntitlementsState = {
   planId: null,
   lastPaymentId: null,
   currentPeriodEnd: null,
+  purchasedBooks: [],
 };
 const defaultLocalState: LocalEntitlementsState = {
   unlockedTiers: [],
-  purchasedBooks: [],
 };
 
 const EntitlementsContext = createContext<EntitlementsContextValue>({
@@ -49,8 +49,8 @@ const EntitlementsContext = createContext<EntitlementsContextValue>({
   loaded: false,
   refreshEntitlements: async () => {},
   applyOptimisticSubscription: () => {},
+  applyOptimisticBookPurchase: () => {},
   unlockTier: () => {},
-  buyBook: () => {},
   resetEntitlements: () => {},
 });
 
@@ -60,17 +60,14 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   const [localState, setLocalState] = useState<LocalEntitlementsState>(defaultLocalState);
   const [loaded, setLoaded] = useState(false);
 
-  // Local demo-only fields (Books) — unchanged persistence.
+  // Local demo-only field (unlockedTiers) — unchanged persistence.
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(STORAGE_KEYS.entitlements);
         if (raw) {
           const parsed = JSON.parse(raw);
-          setLocalState({
-            unlockedTiers: parsed.unlockedTiers ?? [],
-            purchasedBooks: parsed.purchasedBooks ?? [],
-          });
+          setLocalState({ unlockedTiers: parsed.unlockedTiers ?? [] });
         }
       } catch {
         // ignore
@@ -109,6 +106,7 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   // still runs after, so the server stays the real source of truth.
   const applyOptimisticSubscription = (planId: PlanId, paymentId: string, currentPeriodEnd?: string | null) => {
     setServerState((prev) => ({
+      ...prev,
       isSubscribed: true,
       planId,
       lastPaymentId: paymentId,
@@ -117,10 +115,19 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
     refreshEntitlements();
   };
 
+  // Called right after a book payment verifies, so it shows as owned
+  // instantly. If the server already echoed back the full updated list, use
+  // that directly; otherwise just add this one book to what we last knew.
+  const applyOptimisticBookPurchase = (bookId: string, purchasedBooks?: string[]) => {
+    setServerState((prev) => ({
+      ...prev,
+      purchasedBooks: purchasedBooks ?? Array.from(new Set([...prev.purchasedBooks, bookId])),
+    }));
+    refreshEntitlements();
+  };
+
   const unlockTier = (tier: string) =>
     persistLocal({ ...localState, unlockedTiers: Array.from(new Set([...localState.unlockedTiers, tier])) });
-  const buyBook = (bookId: string) =>
-    persistLocal({ ...localState, purchasedBooks: Array.from(new Set([...localState.purchasedBooks, bookId])) });
 
   // Only clears the local demo fields — real membership lives on the
   // account in Supabase and can't be wiped from the device.
@@ -134,8 +141,8 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
         loaded,
         refreshEntitlements,
         applyOptimisticSubscription,
+        applyOptimisticBookPurchase,
         unlockTier,
-        buyBook,
         resetEntitlements,
       }}
     >

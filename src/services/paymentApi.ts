@@ -2,6 +2,7 @@ import { PAYMENTS_BACKEND_URL } from '../config/apiKeys';
 import { supabase } from '../lib/supabaseClient';
 import type { SubscriptionPlan } from '../data/subscription';
 import type { PremiumTier } from '../data/premiumTiers';
+import type { Book } from '../data/books';
 
 export class PaymentsNotConfiguredError extends Error {}
 export class PaymentApiError extends Error {}
@@ -22,6 +23,10 @@ export interface OrderInfo extends CheckoutOrder {
 
 export interface TierOrderInfo extends CheckoutOrder {
   tier: PremiumTier['tier'];
+}
+
+export interface BookOrderInfo extends CheckoutOrder {
+  bookId: Book['id'];
 }
 
 function requireBackendUrl(): string {
@@ -99,13 +104,14 @@ export interface ServerEntitlements {
   planId: SubscriptionPlan['id'] | null;
   lastPaymentId: string | null;
   currentPeriodEnd: string | null;
+  purchasedBooks: string[];
 }
 
 export async function getEntitlements(): Promise<ServerEntitlements> {
   const base = requireBackendUrl();
   const headers = await authHeaders();
   if (!headers.Authorization) {
-    return { isSubscribed: false, planId: null, lastPaymentId: null, currentPeriodEnd: null };
+    return { isSubscribed: false, planId: null, lastPaymentId: null, currentPeriodEnd: null, purchasedBooks: [] };
   }
   let res: Response;
   try {
@@ -204,4 +210,50 @@ export async function verifyTierPayment(
     return { verified: false };
   }
   return { verified: true, paymentId: data.paymentId };
+}
+
+// ---- One-time book purchases (English/Tamil/Hindi guide, quiz booklet) —
+// account-tied like a subscription, so ownership survives a reinstall. ----
+
+export async function createBookOrder(bookId: Book['id']): Promise<BookOrderInfo> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/create-book-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ bookId }),
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server. Check your internet connection.');
+  }
+  if (res.status === 401) {
+    throw new PaymentApiError('Please sign in to buy this book.');
+  }
+  if (!res.ok) {
+    throw new PaymentApiError('Could not start the payment. Please try again in a moment.');
+  }
+  return (await res.json()) as BookOrderInfo;
+}
+
+export async function verifyBookPayment(
+  payload: RazorpaySuccessPayload,
+  bookId: Book['id']
+): Promise<{ verified: boolean; paymentId?: string; purchasedBooks?: string[] }> {
+  const base = requireBackendUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${base}/api/verify-book-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+      body: JSON.stringify({ ...payload, bookId }),
+    });
+  } catch {
+    throw new PaymentApiError('Could not reach the payments server to confirm your payment.');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.verified) {
+    return { verified: false };
+  }
+  return { verified: true, paymentId: data.paymentId, purchasedBooks: data.purchasedBooks };
 }
