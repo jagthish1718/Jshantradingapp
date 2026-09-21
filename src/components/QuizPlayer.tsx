@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { spacing, radius, fonts } from '../theme/spacing';
-import { resolveQuizText, resolveQuizOptions } from '../data/quiz';
+import { resolveQuizText, resolveQuizOptions, shuffleQuestionOptions } from '../data/quiz';
 import type { QuizQuestion } from '../data/quiz';
 import type { LangCode } from '../data/languages';
 
@@ -26,7 +26,10 @@ export default function QuizPlayer({ questions, language, onFinish }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
   const [score, setScore] = useState(0);
 
-  const question = questions[index];
+  const rawQuestion = questions[index];
+  // Reshuffle this question's option order once per question (not on every
+  // re-render, e.g. after selecting an answer) — see shuffleQuestionOptions.
+  const question = useMemo(() => shuffleQuestionOptions(rawQuestion), [rawQuestion]);
   const options = resolveQuizOptions(question.options, language);
 
   const onSelect = (optionIndex: number) => {

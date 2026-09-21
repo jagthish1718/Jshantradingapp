@@ -65,3 +65,31 @@ export function resolveQuizOptions(
 ): string[] {
   return field?.[language] ?? field?.en ?? [];
 }
+
+function shufflePermutation(n: number): number[] {
+  const idx = Array.from({ length: n }, (_, i) => i);
+  for (let i = idx.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  return idx;
+}
+
+// The authored lesson data has the correct option sitting in the same slot
+// for almost every question, which players quickly notice and game. This
+// reshuffles a question's option order right before it's shown — the same
+// permutation applied across every language so translations stay aligned —
+// and remaps correctIndex to match, so scoring is unaffected.
+export function shuffleQuestionOptions(q: QuizQuestion): QuizQuestion {
+  const langs = Object.keys(q.options) as LangCode[];
+  const count = q.options[langs[0]]?.length ?? 0;
+  if (count < 2) return q;
+  const perm = shufflePermutation(count); // perm[newIndex] = oldIndex
+  const newOptions: Partial<Record<LangCode, string[]>> = {};
+  langs.forEach((lang) => {
+    const opts = q.options[lang];
+    if (opts) newOptions[lang] = perm.map((oldIdx) => opts[oldIdx]);
+  });
+  const newCorrectIndex = perm.indexOf(q.correctIndex);
+  return { ...q, options: newOptions, correctIndex: newCorrectIndex };
+}
