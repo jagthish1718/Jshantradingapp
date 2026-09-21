@@ -10,6 +10,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +23,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
 import { useEntitlements } from '../context/EntitlementsContext';
 import SubscriptionGate from '../components/SubscriptionGate';
+import { useLanguage } from '../context/LanguageContext';
+import { getJournalInsights, ApiKeyMissingError, CoachApiError } from '../services/aiCoach';
 
 type Direction = 'Buy' | 'Sell';
 
@@ -43,7 +46,11 @@ export default function TradingJournalScreen({ navigation }: Props) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const { isSubscribed } = useEntitlements();
+  const { language } = useLanguage();
   const [showForm, setShowForm] = useState(false);
+  const [insight, setInsight] = useState<string | null>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState<string | null>(null);
   const [direction, setDirection] = useState<Direction>('Buy');
   const [symbol, setSymbol] = useState('');
   const [entryPrice, setEntryPrice] = useState('');
@@ -66,6 +73,62 @@ export default function TradingJournalScreen({ navigation }: Props) {
   const persist = (next: JournalEntry[]) => {
     setEntries(next);
     AsyncStorage.setItem(STORAGE_KEYS.journal, JSON.stringify(next)).catch(() => {});
+  };
+
+  // A fresh insight is only worth re-generating (and re-spending an API
+  // call) once the set of CLOSED trades actually changes — not on every
+  // screen visit — so the last result is cached against that count.
+  useEffect(() => {
+    if (!loaded) return;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(STORAGE_KEYS.journalInsightCache);
+        if (!raw) return;
+        const cached = JSON.parse(raw) as { forClosedCount: number; language: string; text: string };
+        const closedCount = entries.filter((e) => e.exitPrice !== null).length;
+        if (cached.forClosedCount === closedCount && cached.language === language) {
+          setInsight(cached.text);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    // Only re-check the cache when the journal first finishes loading —
+    // generateInsight() keeps state in sync with fresh entries after that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  const generateInsight = async () => {
+    setInsightLoading(true);
+    setInsightError(null);
+    try {
+      const summary = entries.map((e) => ({
+        symbol: e.symbol,
+        direction: e.direction,
+        entryPrice: e.entryPrice,
+        exitPrice: e.exitPrice,
+        pnlPercent: e.exitPrice !== null ? pnlPercent(e) : null,
+        notes: e.notes,
+        date: e.date,
+      }));
+      const text = await getJournalInsights(summary, language);
+      setInsight(text);
+      const closedCount = entries.filter((e) => e.exitPrice !== null).length;
+      AsyncStorage.setItem(
+        STORAGE_KEYS.journalInsightCache,
+        JSON.stringify({ forClosedCount: closedCount, language, text })
+      ).catch(() => {});
+    } catch (e) {
+      if (e instanceof ApiKeyMissingError) {
+        setInsightError('AI insights are not set up on the server yet.');
+      } else if (e instanceof CoachApiError) {
+        setInsightError(e.message);
+      } else {
+        setInsightError('Something went wrong generating insights. Please try again.');
+      }
+    } finally {
+      setInsightLoading(false);
+    }
   };
 
   const resetForm = () => {
@@ -321,13 +384,58 @@ export default function TradingJournalScreen({ navigation }: Props) {
             );
           })}
 
-          {entries.length > 0 && (
-            <View style={styles.insightBox}>
+          {entries.length > 0 && closedEntries.length < 2 && (
+            <View style={styles.insightHintRow}>
               <Ionicons name="sparkles-outline" size={16} color={colors.purple} />
               <Text style={styles.insightText}>
-                AI-generated insights on your journal patterns are coming soon — for now, use this space to review
-                your own trades honestly.
+                Close at least 2 trades and AI Coach can spot patterns across them — for now, use this space to
+                review your own trades honestly.
               </Text>
+            </View>
+          )}
+
+          {closedEntries.length >= 2 && (
+            <View style={styles.insightBox}>
+              <View style={styles.insightHeaderRow}>
+                <Ionicons name="sparkles-outline" size={16} color={colors.purple} />
+                <Text style={styles.insightHeaderText}>AI insights</Text>
+              </View>
+
+              {insightLoading && (
+                <View style={styles.insightLoadingRow}>
+                  <ActivityIndicator size="small" color={colors.purple} />
+                  <Text style={styles.insightText}>Looking through your trades…</Text>
+                </View>
+              )}
+
+              {!insightLoading && insightError && (
+                <>
+                  <Text style={styles.insightText}>{insightError}</Text>
+                  <Pressable style={styles.insightButton} onPress={generateInsight}>
+                    <Text style={styles.insightButtonText}>Try again</Text>
+                  </Pressable>
+                </>
+              )}
+
+              {!insightLoading && !insightError && insight && (
+                <>
+                  <Text style={styles.insightText}>{insight}</Text>
+                  <Pressable style={styles.insightButton} onPress={generateInsight}>
+                    <Text style={styles.insightButtonText}>Refresh</Text>
+                  </Pressable>
+                </>
+              )}
+
+              {!insightLoading && !insightError && !insight && (
+                <>
+                  <Text style={styles.insightText}>
+                    Get a short, honest read on patterns across your closed trades — no stock tips, just reflection.
+                  </Text>
+                  <Pressable style={styles.insightButton} onPress={generateInsight}>
+                    <Text style={styles.insightButtonText}>Get AI insights</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           )}
         </ScrollView>
@@ -470,6 +578,13 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   pnlPositive: { color: colors.success },
   pnlNegative: { color: colors.danger },
   insightBox: {
+    backgroundColor: colors.purpleBg,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  insightHintRow: {
     flexDirection: 'row',
     gap: spacing.sm,
     backgroundColor: colors.purpleBg,
@@ -479,4 +594,16 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     marginBottom: spacing.xl,
   },
   insightText: { flex: 1, fontFamily: fonts.regular, fontSize: 12, color: colors.purple, lineHeight: 17 },
+  insightHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
+  insightHeaderText: { fontFamily: fonts.semiBold, fontSize: 12.5, color: colors.purple },
+  insightLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  insightButton: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    backgroundColor: colors.purple,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+  },
+  insightButtonText: { fontFamily: fonts.semiBold, fontSize: 12, color: '#fff' },
 });

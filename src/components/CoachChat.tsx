@@ -102,8 +102,7 @@ export default function CoachChat({ lessonId, lessonTitle: lessonTitleProp, onCl
       historyRef.current = historyRef.current.slice(0, -1);
       let errText: string;
       if (e instanceof ApiKeyMissingError) {
-        errText =
-          'AI Coach is not set up yet — add a free Gemini API key in src/config/apiKeys.ts to enable real answers.';
+        errText = 'AI Coach is not set up on the server yet — please try again later.';
       } else if (e instanceof CoachApiError) {
         errText = e.message;
       } else {
