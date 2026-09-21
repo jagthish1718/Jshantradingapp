@@ -3,14 +3,16 @@ export interface LeaderboardEntry {
   score: number;
 }
 
-// PLACEHOLDER top entries — real leaderboard needs a backend/account system.
-// "You" row is inserted at runtime using the locally stored score.
+// Sample rows shown to signed-out players (and as a graceful fallback if the
+// live Supabase leaderboard can't be reached). Scores are on the same 0-100
+// scale as a real quiz result (10 questions * 10 pts each), so a real score
+// ranks sensibly alongside these instead of always landing dead last.
 export const sampleLeaderboard: LeaderboardEntry[] = [
-  { name: 'Arjun K.', score: 480 },
-  { name: 'Priya S.', score: 465 },
-  { name: 'Rahul M.', score: 452 },
-  { name: 'Divya R.', score: 441 },
-  { name: 'Karthik V.', score: 430 },
-  { name: 'Sneha P.', score: 418 },
-  { name: 'Vignesh T.', score: 405 },
+  { name: 'Arjun K.', score: 90 },
+  { name: 'Priya S.', score: 85 },
+  { name: 'Rahul M.', score: 80 },
+  { name: 'Divya R.', score: 70 },
+  { name: 'Karthik V.', score: 60 },
+  { name: 'Sneha P.', score: 50 },
+  { name: 'Vignesh T.', score: 40 },
 ];

@@ -7,6 +7,9 @@ import type { ThemeColors } from '../theme/colors';
 import { spacing, radius, fonts } from '../theme/spacing';
 import { getDailyQuiz } from '../data/quiz';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
+import { useProfile } from '../context/ProfileContext';
+import { submitScoreIfBest } from '../services/leaderboardApi';
 import QuizPlayer from '../components/QuizPlayer';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { QuizStackParamList } from '../navigation/types';
@@ -19,6 +22,8 @@ export default function QuizScreen({ navigation }: Props) {
   const colors = useThemeColors();
   const styles = makeStyles(colors);
   const { language } = useLanguage();
+  const { user } = useAuth();
+  const { name } = useProfile();
   // Same 10 questions for everyone today, a different 10 tomorrow — a real
   // "daily quiz" drawn from the full 258-question pool across all 50 lessons.
   const dailyQuiz = useMemo(() => getDailyQuiz(), []);
@@ -28,20 +33,26 @@ export default function QuizScreen({ navigation }: Props) {
   useEffect(() => {
     if (!result) return;
     (async () => {
+      // Points scaled 0-100 (10 questions × 10 pts) — this IS the real
+      // leaderboard's scale now, not a placeholder; quiz_leaderboard's
+      // CHECK constraint enforces the same 0-100 bound server-side.
+      const points = result.score * 10;
       try {
-        // Scaled to leaderboard's ~500-point range so a 10-Q session
-        // contributes proportionally until real per-day scoring is wired up.
-        const points = result.score * 10;
         const raw = await AsyncStorage.getItem(BEST_SCORE_KEY);
         const prevBest = raw ? parseInt(raw, 10) : 0;
         if (points > prevBest) {
           await AsyncStorage.setItem(BEST_SCORE_KEY, String(points));
         }
       } catch {
-        // ignore
+        // ignore — local best-score tracking is best-effort
+      }
+      // Signed-in players also sync to the real, shared leaderboard.
+      // Fire-and-forget: a sync failure shouldn't block seeing the score.
+      if (user) {
+        submitScoreIfBest(user.id, name, points).catch(() => {});
       }
     })();
-  }, [result]);
+  }, [result, user, name]);
 
   const restart = () => {
     setResult(null);
