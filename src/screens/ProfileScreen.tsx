@@ -281,6 +281,17 @@ export default function ProfileScreen({ navigation }: Props) {
           subtitle={isSubscribed ? 'All tiers included' : 'Included with membership'}
           onPress={() => navigation.navigate('Premium')}
         />
+        <Divider styles={styles} />
+        <Row
+          styles={styles}
+          colors={colors}
+          icon="book-outline"
+          iconBg={colors.tealBg}
+          iconColor={colors.teal}
+          title="Books"
+          subtitle="Lesson content as downloadable PDFs"
+          onPress={() => navigation.navigate('Books')}
+        />
       </View>
 
       <Text style={styles.sectionTitle}>General</Text>

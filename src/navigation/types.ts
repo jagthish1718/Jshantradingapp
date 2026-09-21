@@ -37,6 +37,7 @@ export type ProfileStackParamList = {
   ProfileMain: undefined;
   Subscription: undefined;
   Premium: undefined;
+  Books: undefined;
   Auth: { mode?: 'signup' | 'login' } | undefined;
   Settings: undefined;
 };
