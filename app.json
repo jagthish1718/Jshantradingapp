@@ -7,12 +7,15 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.jshangames.niveshaa",
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Niveshaa uses your photo library so you can set a profile picture."
       }
     },
     "android": {
+      "package": "com.jshangames.niveshaa",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#2E4BDE",
         "foregroundImage": "./assets/android-icon-foreground.png",
