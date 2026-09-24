@@ -3,7 +3,6 @@ import HomeScreen from '../screens/HomeScreen';
 import ChecklistScreen from '../screens/ChecklistScreen';
 import PaperTradingScreen from '../screens/PaperTradingScreen';
 import TradingJournalScreen from '../screens/TradingJournalScreen';
-import ChartViewScreen from '../screens/ChartViewScreen';
 import ProChartScreen from '../screens/ProChartScreen';
 import OptionsChainScreen from '../screens/OptionsChainScreen';
 import OptionOrderScreen from '../screens/OptionOrderScreen';
@@ -31,7 +30,6 @@ export default function HomeNavigator() {
       <Stack.Screen name="Checklist" component={ChecklistScreen} options={{ title: 'Daily Checklist' }} />
       <Stack.Screen name="PaperTrading" component={PaperTradingScreen} options={{ headerShown: false }} />
       <Stack.Screen name="TradingJournal" component={TradingJournalScreen} options={{ title: 'Trading Journal', headerShown: false }} />
-      <Stack.Screen name="ChartView" component={ChartViewScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ProChart" component={ProChartScreen} options={{ headerShown: false }} />
       <Stack.Screen name="OptionsChain" component={OptionsChainScreen} options={{ headerShown: false }} />
       <Stack.Screen name="OptionOrder" component={OptionOrderScreen} options={{ headerShown: false, presentation: 'modal' }} />
