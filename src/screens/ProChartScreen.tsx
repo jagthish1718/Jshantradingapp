@@ -105,6 +105,23 @@ export default function ProChartScreen({ navigation, route }: Props) {
         sharedCookiesEnabled
         thirdPartyCookiesEnabled
         startInLoadingState
+        // TradingView's sign-in flow opens its email/OTP step with
+        // window.open(), which a plain WebView silently swallows -- no new
+        // tab exists to show it, so the page just sits there looking stuck.
+        // Forcing window.open() to navigate the current WebView instead
+        // (and, on Android, telling the WebView not to expect a separate
+        // popup window) makes that same flow happen in-place.
+        javaScriptCanOpenWindowsAutomatically
+        setSupportMultipleWindows={false}
+        injectedJavaScriptBeforeContentLoaded={`
+          (function() {
+            window.open = function(url) {
+              if (url) { window.location.href = url; }
+              return null;
+            };
+          })();
+          true;
+        `}
       />
     </SafeAreaView>
   );
