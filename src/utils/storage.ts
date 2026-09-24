@@ -8,6 +8,7 @@ export const STORAGE_KEYS = {
   journal: 'nivesha:journal',
   journalInsightCache: 'nivesha:journal:insight_cache',
   coachIntroSeen: 'nivesha:coach_intro_seen_v4',
+  coachFabPosition: 'nivesha:coach_fab_position',
   themeMode: 'nivesha:pref:theme_mode',
   notificationsEnabled: 'nivesha:pref:notifications_enabled',
 };
