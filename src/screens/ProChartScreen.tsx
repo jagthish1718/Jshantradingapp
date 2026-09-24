@@ -87,15 +87,6 @@ export default function ProChartScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      <View style={styles.infoBanner}>
-        <Ionicons name="information-circle-outline" size={14} color={colors.primary} />
-        <Text style={styles.infoBannerText}>
-          Real TradingView chart. Tap "Join for free" once inside the chart (a free TradingView account) to unlock
-          every indicator and drawing tool -- it stays signed in after that. To place a practice order, go back to
-          Paper Trading.
-        </Text>
-      </View>
-
       <WebView
         source={{ uri: url }}
         style={styles.webview}
@@ -148,14 +139,5 @@ const makeStyles = (colors: ThemeColors) =>
     },
     headerTitle: { fontFamily: fonts.bold, fontSize: 16, color: '#fff' },
     headerSub: { fontFamily: fonts.regular, fontSize: 11.5, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
-    infoBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      backgroundColor: colors.primaryLight,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-    },
-    infoBannerText: { flex: 1, fontFamily: fonts.regular, fontSize: 10.5, color: colors.primary, lineHeight: 14 },
     webview: { flex: 1, backgroundColor: colors.background },
   });
