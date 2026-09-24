@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, Pressable, Text, SafeAreaView, ScrollView } from 'react-native';
+import { StyleSheet, View, Pressable, Text, SafeAreaView, ScrollView, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { spacing, radius, fonts } from '../theme/spacing';
-import { ensureStarted, subscribe, getPrice, optionPremium, FRACTIONAL_VOL_PER_MINUTE } from '../data/marketSim';
+import {
+  ensureStarted,
+  subscribe,
+  getPrice,
+  optionPremium,
+  FRACTIONAL_VOL_PER_MINUTE,
+  STARTING_CASH,
+} from '../data/marketSim';
+import { STORAGE_KEYS } from '../utils/storage';
+import type { SimState } from '../types/trading';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
 
@@ -129,8 +139,13 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
   </div>
   <div id="toolbar">
     <button class="btn active" id="tool-cursor" onclick="setTool('cursor')">Cursor</button>
-    <button class="btn" id="tool-trend" onclick="setTool('trend')">Trend Line</button>
+    <button class="btn" id="tool-trend" onclick="setTool('trend')">Trend</button>
     <button class="btn" id="tool-hline" onclick="setTool('hline')">H-Line</button>
+    <button class="btn" id="tool-hray" onclick="setTool('hray')">H-Ray</button>
+    <button class="btn" id="tool-fib" onclick="setTool('fib')">Fib</button>
+    <button class="btn" id="tool-arrowup" onclick="setTool('arrowup')">Arrow ↑</button>
+    <button class="btn" id="tool-arrowdown" onclick="setTool('arrowdown')">Arrow ↓</button>
+    <button class="btn" id="tool-measure" onclick="setTool('measure')">Measure</button>
     <button class="btn" onclick="clearDrawings()">Clear</button>
     <div class="sep"></div>
     <button class="btn active" id="ind-ma" onclick="toggleInd('ma')">MA</button>
@@ -197,6 +212,18 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
 
   var entryLine = null;
   var currentCandles = [];
+  var markersHandle = LightweightCharts.createSeriesMarkers(candleSeries, []);
+  var allMarkers = [];
+
+  function nearestCandleTime(t) {
+    if (!currentCandles.length) return null;
+    var best = currentCandles[0].time, bestDiff = Math.abs(currentCandles[0].time - t);
+    for (var i = 1; i < currentCandles.length; i++) {
+      var diff = Math.abs(currentCandles[i].time - t);
+      if (diff < bestDiff) { bestDiff = diff; best = currentCandles[i].time; }
+    }
+    return best;
+  }
 
   function toBar(c) { return { time: c.time, open: c.o, high: c.h, low: c.l, close: c.c }; }
   function toVolBar(c) { return { time: c.time, value: c.v, color: c.c >= c.o ? '${upColor}66' : '${downColor}66' }; }
@@ -312,13 +339,16 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
   var drawings = [];
   var hintEl = document.getElementById('hint');
 
+  var TWO_TAP_TOOLS = ['trend', 'fib', 'measure'];
   window.setTool = function (t) {
     tool = t;
     pending = null;
-    ['cursor', 'trend', 'hline'].forEach(function (id) {
-      document.getElementById('tool-' + id).classList.toggle('active', id === t);
+    ['cursor', 'trend', 'hline', 'hray', 'fib', 'arrowup', 'arrowdown', 'measure'].forEach(function (id) {
+      var el = document.getElementById('tool-' + id);
+      if (el) el.classList.toggle('active', id === t);
     });
-    if (t === 'trend') { hintEl.style.opacity = '1'; hintEl.textContent = 'Tap first point'; }
+    if (TWO_TAP_TOOLS.indexOf(t) !== -1) { hintEl.style.opacity = '1'; hintEl.textContent = 'Tap first point'; }
+    else if (t !== 'cursor') { hintEl.style.opacity = '1'; hintEl.textContent = 'Tap chart to place'; }
     else { hintEl.style.opacity = '0'; }
   };
 
@@ -343,8 +373,10 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
       else chart.removeSeries(d.ref);
     });
     drawings = [];
+    allMarkers = [];
+    markersHandle.setMarkers([]);
     pending = null;
-    if (tool === 'trend') hintEl.textContent = 'Tap first point';
+    if (TWO_TAP_TOOLS.indexOf(tool) !== -1) hintEl.textContent = 'Tap first point';
   };
 
   chart.subscribeClick(function (param) {
@@ -380,6 +412,78 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
         pending = null;
         hintEl.textContent = 'Tap first point';
       }
+      return;
+    }
+
+    if (tool === 'hray') {
+      var rTime = param.time;
+      if (!rTime) return;
+      var lastT = currentCandles.length ? currentCandles[currentCandles.length - 1].time : rTime + 60;
+      var endT = Math.max(lastT, rTime + 60);
+      var rayLine = chart.addSeries(LightweightCharts.LineSeries, {
+        color: '#ff6d00', lineWidth: 2, lastValueVisible: false, priceLineVisible: false,
+      }, 0);
+      rayLine.setData([{ time: rTime, value: price }, { time: endT, value: price }]);
+      drawings.push({ type: 'trend', ref: rayLine });
+      return;
+    }
+
+    if (tool === 'fib') {
+      var fTime = param.time;
+      if (!fTime) return;
+      if (!pending) {
+        pending = { time: fTime, price: price };
+        hintEl.textContent = 'Tap second point';
+      } else {
+        var ratios = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+        ratios.forEach(function (r) {
+          var lvl = pending.price - (pending.price - price) * r;
+          var fpl = candleSeries.createPriceLine({
+            price: lvl, color: '#ffb300', lineWidth: 1,
+            lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true,
+            title: (r * 100).toFixed(1) + '%',
+          });
+          drawings.push({ type: 'hline', ref: fpl });
+        });
+        pending = null;
+        hintEl.textContent = 'Tap first point';
+      }
+      return;
+    }
+
+    if (tool === 'arrowup' || tool === 'arrowdown') {
+      var snapT = nearestCandleTime(param.time || 0);
+      if (snapT == null) return;
+      allMarkers.push({
+        time: snapT,
+        position: tool === 'arrowup' ? 'belowBar' : 'aboveBar',
+        color: tool === 'arrowup' ? '${upColor}' : '${downColor}',
+        shape: tool === 'arrowup' ? 'arrowUp' : 'arrowDown',
+      });
+      allMarkers.sort(function (a, b) { return a.time - b.time; });
+      markersHandle.setMarkers(allMarkers);
+      return;
+    }
+
+    if (tool === 'measure') {
+      var mTime = param.time;
+      if (!mTime) return;
+      if (!pending) {
+        pending = { time: mTime, price: price };
+        hintEl.textContent = 'Tap second point';
+      } else {
+        var diff = price - pending.price;
+        var pct = pending.price !== 0 ? (diff / pending.price) * 100 : 0;
+        hintEl.textContent = (diff >= 0 ? '+' : '') + diff.toFixed(2) + ' (' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
+        pending = null;
+        (function () {
+          var atSet = tool;
+          setTimeout(function () {
+            if (tool === atSet) hintEl.textContent = 'Tap first point';
+          }, 2500);
+        })();
+      }
+      return;
     }
   });
 })();
@@ -471,6 +575,79 @@ export default function PositionChartScreen({ navigation, route }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe, underlyingSymbol, option?.strike, option?.type]);
 
+  const [trading, setTrading] = useState(false);
+
+  // BUY/SELL right from the chart. An option position routes to the full
+  // Order screen (it needs lot size + margin handling, already correct
+  // there); a plain instrument trades 1 qty at LTP directly, same pattern
+  // PaperTradingScreen's own quick trade uses, so both stay in sync via
+  // the same AsyncStorage-backed SimState.
+  const quickTrade = async (side: 'BUY' | 'SELL') => {
+    if (option) {
+      navigation.navigate('OptionOrder', {
+        underlying: option.underlying,
+        strike: option.strike,
+        optType: option.type,
+        expiry: option.expiry,
+        lotSize: option.lotSize,
+        side,
+      });
+      return;
+    }
+    setTrading(true);
+    const price = getPrice(symbol);
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEYS.paperTrading);
+      const sim: SimState = raw
+        ? { cash: STARTING_CASH, holdings: [], orders: [], ...JSON.parse(raw) }
+        : { cash: STARTING_CASH, holdings: [], orders: [] };
+      if (!Array.isArray(sim.holdings)) sim.holdings = [];
+      if (!Array.isArray(sim.orders)) sim.orders = [];
+
+      if (side === 'BUY') {
+        if (price > sim.cash) {
+          Alert.alert('Not enough cash', `You need ${formatRupees(price)} but only have ${formatRupees(sim.cash)} available.`);
+          return;
+        }
+        const existing = sim.holdings.find((h) => h.symbol === symbol);
+        if (existing) {
+          const newQty = existing.qty + 1;
+          existing.avgPrice = (existing.avgPrice * existing.qty + price) / newQty;
+          existing.qty = newQty;
+        } else {
+          sim.holdings.push({ symbol, qty: 1, avgPrice: price, stopLoss: null, target: null, trailingPercent: null, trailingHigh: null });
+        }
+        sim.cash -= price;
+      } else {
+        const existing = sim.holdings.find((h) => h.symbol === symbol && h.qty > 0);
+        if (!existing) {
+          Alert.alert('No position', `You don't hold any ${symbol} to sell yet.`);
+          return;
+        }
+        existing.qty -= 1;
+        sim.cash += price;
+        if (existing.qty <= 0) sim.holdings = sim.holdings.filter((h) => h.symbol !== symbol);
+      }
+
+      sim.orders.unshift({
+        id: `${Date.now()}-poschart-${side.toLowerCase()}`,
+        symbol,
+        side,
+        qty: 1,
+        price,
+        reason: 'Manual',
+        timestamp: new Date().toISOString(),
+      });
+
+      await AsyncStorage.setItem(STORAGE_KEYS.paperTrading, JSON.stringify(sim));
+      Alert.alert(side === 'BUY' ? 'Bought' : 'Sold', `1 qty of ${symbol} @ ${formatRupees(price)}`);
+    } catch {
+      Alert.alert('Something went wrong', 'Could not place this order -- please try again.');
+    } finally {
+      setTrading(false);
+    }
+  };
+
   const livePrice = option ? optionPremium(getPrice(underlyingSymbol), option.strike, isCall) : getPrice(underlyingSymbol);
   const pnl = (livePrice - avgPrice) * qty;
 
@@ -495,6 +672,26 @@ export default function PositionChartScreen({ navigation, route }: Props) {
           {pnl >= 0 ? '+' : ''}
           {formatRupees(pnl)}
         </Text>
+      </View>
+
+      <View style={styles.quickTradeRow}>
+        <Pressable
+          style={[styles.quickTradeButton, styles.buyButton, trading && styles.quickTradeButtonDisabled]}
+          disabled={trading}
+          onPress={() => quickTrade('BUY')}
+        >
+          <Text style={styles.quickTradeLabel}>BUY</Text>
+        </Pressable>
+        <Text style={styles.quickTradeHint}>
+          {option ? `Lot ${option.lotSize}` : '1 qty'} @ {formatRupees(livePrice)}
+        </Text>
+        <Pressable
+          style={[styles.quickTradeButton, styles.sellButton, trading && styles.quickTradeButtonDisabled]}
+          disabled={trading}
+          onPress={() => quickTrade('SELL')}
+        >
+          <Text style={styles.quickTradeLabel}>SELL</Text>
+        </Pressable>
       </View>
 
       <ScrollView
@@ -550,6 +747,22 @@ const makeStyles = (colors: ThemeColors) =>
     headerTitle: { fontFamily: fonts.bold, fontSize: 15.5, color: '#fff' },
     headerSub: { fontFamily: fonts.regular, fontSize: 11, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
     pnlText: { fontFamily: fonts.bold, fontSize: 13.5 },
+    quickTradeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    quickTradeButton: { flex: 1, alignItems: 'center', borderRadius: radius.md, paddingVertical: 8 },
+    quickTradeButtonDisabled: { opacity: 0.6 },
+    buyButton: { backgroundColor: colors.primary },
+    sellButton: { backgroundColor: colors.danger },
+    quickTradeLabel: { fontFamily: fonts.bold, fontSize: 12.5, color: '#fff', letterSpacing: 0.5 },
+    quickTradeHint: { fontFamily: fonts.regular, fontSize: 10, color: colors.textLight, textAlign: 'center' },
     tfRowOuter: { flexGrow: 0, flexShrink: 0 },
     tfRow: {
       flexDirection: 'row',
