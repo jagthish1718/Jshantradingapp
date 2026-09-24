@@ -89,7 +89,14 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
     }
     try {
       const data = await fetchServerEntitlements();
-      setServerState(data);
+      // Belt-and-suspenders: even though paymentApi already normalizes this,
+      // never let a malformed/partial response wipe out purchasedBooks with
+      // undefined — that crashes BooksScreen's .includes() check.
+      setServerState({
+        ...defaultServerState,
+        ...data,
+        purchasedBooks: Array.isArray(data.purchasedBooks) ? data.purchasedBooks : [],
+      });
     } catch {
       // Transient network error — keep whatever we last knew rather than
       // flashing the user back to "not subscribed".

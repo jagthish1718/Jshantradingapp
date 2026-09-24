@@ -122,7 +122,17 @@ export async function getEntitlements(): Promise<ServerEntitlements> {
   if (!res.ok) {
     throw new PaymentApiError('Could not load your membership status.');
   }
-  return (await res.json()) as ServerEntitlements;
+  const data = (await res.json()) as Partial<ServerEntitlements>;
+  // Defensive: never trust the network response shape blindly — an older
+  // deployed backend build or a partial response could omit a field, and
+  // callers like BooksScreen do purchasedBooks.includes(...) unguarded.
+  return {
+    isSubscribed: !!data.isSubscribed,
+    planId: data.planId ?? null,
+    lastPaymentId: data.lastPaymentId ?? null,
+    currentPeriodEnd: data.currentPeriodEnd ?? null,
+    purchasedBooks: Array.isArray(data.purchasedBooks) ? data.purchasedBooks : [],
+  };
 }
 
 // ---- One-time premium lesson-tier purchases ----
@@ -217,21 +227,32 @@ export async function verifyTierPayment(
 
 export async function createBookOrder(bookId: Book['id']): Promise<BookOrderInfo> {
   const base = requireBackendUrl();
+  const url = `${base}/api/create-book-order`;
   let res: Response;
   try {
-    res = await fetch(`${base}/api/create-book-order`, {
+    res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ bookId }),
     });
-  } catch {
-    throw new PaymentApiError('Could not reach the payments server. Check your internet connection.');
+  } catch (e) {
+    // Temporary diagnostic: include the actual network error and the URL we
+    // tried, instead of a generic message, so we can see exactly what fails.
+    const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    throw new PaymentApiError(`Could not reach the payments server. [${url}] [${detail}]`);
   }
   if (res.status === 401) {
     throw new PaymentApiError('Please sign in to buy this book.');
   }
   if (!res.ok) {
-    throw new PaymentApiError('Could not start the payment. Please try again in a moment.');
+    // Temporary diagnostic: include the real status + response body.
+    let bodyText = '';
+    try {
+      bodyText = (await res.text()).slice(0, 200);
+    } catch {
+      bodyText = '(could not read body)';
+    }
+    throw new PaymentApiError(`Could not start the payment. [status ${res.status}] [${bodyText}]`);
   }
   return (await res.json()) as BookOrderInfo;
 }

@@ -53,10 +53,12 @@ export default function BooksScreen({ navigation }: Props) {
       setOrder(o);
       setCheckoutVisible(true);
     } catch (e) {
+      // Temporary: surface the raw error too, so we can see exactly what's
+      // failing instead of guessing from a generic message.
       const msg =
         e instanceof PaymentsNotConfiguredError || e instanceof PaymentApiError
           ? e.message
-          : 'Could not start the payment. Please try again.';
+          : `Could not start the payment. Please try again. [${e instanceof Error ? e.name + ': ' + e.message : String(e)}]`;
       Alert.alert('Payment error', msg);
     } finally {
       setBuyingId(null);
@@ -93,7 +95,7 @@ export default function BooksScreen({ navigation }: Props) {
         }
         renderItem={({ item }) => {
           const includedFree = item.isLessonContent && hasFullLessonAccess;
-          const owned = purchasedBooks.includes(item.id) || includedFree;
+          const owned = (purchasedBooks ?? []).includes(item.id) || includedFree;
           const buying = buyingId === item.id;
           return (
             <View style={styles.card}>
