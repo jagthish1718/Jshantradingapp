@@ -36,9 +36,9 @@ export const books: Book[] = [
     id: 'book-hi',
     title: 'निवेशा ट्रेडिंग गाइड',
     language: 'Hindi',
-    pages: 118,
+    pages: 176,
     price: '₹149',
-    description: 'Same course, complete Hindi translation — the typeset PDF edition is still being finalized; all 50 lessons are already available in Hindi inside the app today.',
+    description: 'Same course, complete Hindi translation — the typeset PDF edition, with all charts and diagrams included.',
     isLessonContent: true,
   },
   {
