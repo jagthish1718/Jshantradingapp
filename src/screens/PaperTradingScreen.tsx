@@ -750,17 +750,20 @@ export default function PaperTradingScreen({ navigation }: Props) {
                       <Pressable style={styles.closeButton} onPress={() => closePosition(h.symbol)}>
                         <Text style={styles.closeButtonText}>{isShort ? 'Buy to cover' : 'Close position'}</Text>
                       </Pressable>
-                      {isOption && (
-                        <Pressable
-                          style={styles.chartLinkButton}
-                          onPress={() =>
-              navigation.navigate('ProChart', { symbol: h.option!.underlying })
-            }
-                        >
-                          <Ionicons name="stats-chart-outline" size={13} color={colors.primary} />
-                          <Text style={styles.chartLinkButtonText}>{h.option!.underlying} chart</Text>
-                        </Pressable>
-                      )}
+                      <Pressable
+                        style={styles.chartLinkButton}
+                        onPress={() =>
+                          navigation.navigate('PositionChart', {
+                            symbol: h.symbol,
+                            qty: h.qty,
+                            avgPrice: h.avgPrice,
+                            option: h.option,
+                          })
+                        }
+                      >
+                        <Ionicons name="analytics-outline" size={13} color={colors.primary} />
+                        <Text style={styles.chartLinkButtonText}>Chart</Text>
+                      </Pressable>
                     </View>
                   </View>
                 );

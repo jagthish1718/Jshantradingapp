@@ -1,3 +1,5 @@
+import type { OptionMeta } from '../data/marketSim';
+
 export type LessonsStackParamList = {
   LessonList: undefined;
   LessonDetail: { lessonId: number };
@@ -11,6 +13,7 @@ export type HomeStackParamList = {
   PaperTrading: undefined;
   TradingJournal: undefined;
   ProChart: { symbol: string };
+  PositionChart: { symbol: string; qty: number; avgPrice: number; option?: OptionMeta };
   OptionsChain: undefined;
   OptionOrder: {
     underlying: string;
