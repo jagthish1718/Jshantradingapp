@@ -178,6 +178,23 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
   var macdHistSeries = chart.addSeries(LightweightCharts.HistogramSeries, { color: '${upColor}', visible: false }, 2);
   chart.panes()[2].setHeight(PANE_MIN);
 
+  function resizeChart() {
+    var outer = document.getElementById('chartOuter');
+    var toolbarEl = document.getElementById('toolbar');
+    var w = outer.clientWidth || window.innerWidth;
+    var h = outer.clientHeight || (window.innerHeight - (toolbarEl ? toolbarEl.offsetHeight : 0));
+    if (w > 0 && h > 0) chart.resize(w, h);
+  }
+  window.addEventListener('load', resizeChart);
+  window.addEventListener('resize', resizeChart);
+  if (window.ResizeObserver) {
+    new ResizeObserver(resizeChart).observe(document.getElementById('chartOuter'));
+  }
+  setTimeout(resizeChart, 50);
+  setTimeout(resizeChart, 300);
+  setTimeout(resizeChart, 800);
+  setTimeout(resizeChart, 1500);
+
   var entryLine = null;
   var currentCandles = [];
 
@@ -262,6 +279,7 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
     volSeries.setData(candles.map(toVolBar));
     recomputeIndicators(candles);
     chart.timeScale().fitContent();
+    resizeChart();
   }
 
   window.setCandles = function (json) { applyCandles(JSON.parse(json)); };
@@ -479,7 +497,12 @@ export default function PositionChartScreen({ navigation, route }: Props) {
         </Text>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tfRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tfRowOuter}
+        contentContainerStyle={styles.tfRow}
+      >
         {TIMEFRAMES.map((t) => (
           <Pressable
             key={t.key}
@@ -527,6 +550,7 @@ const makeStyles = (colors: ThemeColors) =>
     headerTitle: { fontFamily: fonts.bold, fontSize: 15.5, color: '#fff' },
     headerSub: { fontFamily: fonts.regular, fontSize: 11, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
     pnlText: { fontFamily: fonts.bold, fontSize: 13.5 },
+    tfRowOuter: { flexGrow: 0, flexShrink: 0 },
     tfRow: {
       flexDirection: 'row',
       alignItems: 'center',
