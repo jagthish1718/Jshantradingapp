@@ -14,6 +14,7 @@ export type HomeStackParamList = {
     symbol: string;
     option?: { strike: number; optType: 'CE' | 'PE'; expiry: string; lotSize: number };
   };
+  ProChart: { symbol: string };
   OptionsChain: undefined;
   OptionOrder: {
     underlying: string;

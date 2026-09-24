@@ -525,13 +525,22 @@ export default function PaperTradingScreen({ navigation }: Props) {
                           gradientId={`chart-${ins.symbol}`}
                         />
                       </View>
-                      <Pressable
-                        style={styles.fullChartLink}
-                        onPress={() => navigation.navigate('ChartView', { symbol: ins.symbol })}
-                      >
-                        <Ionicons name="stats-chart-outline" size={13} color={colors.primary} />
-                        <Text style={styles.fullChartLinkText}>View full chart</Text>
-                      </Pressable>
+                      <View style={styles.chartLinksRow}>
+                        <Pressable
+                          style={styles.fullChartLink}
+                          onPress={() => navigation.navigate('ChartView', { symbol: ins.symbol })}
+                        >
+                          <Ionicons name="stats-chart-outline" size={13} color={colors.primary} />
+                          <Text style={styles.fullChartLinkText}>View full chart</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.fullChartLink}
+                          onPress={() => navigation.navigate('ProChart', { symbol: ins.symbol })}
+                        >
+                          <Ionicons name="analytics-outline" size={13} color={colors.primary} />
+                          <Text style={styles.fullChartLinkText}>Pro chart (indicators & trend lines)</Text>
+                        </Pressable>
+                      </View>
 
                       <View style={styles.qtyRow}>
                         <Text style={styles.qtyLabel}>Quantity</Text>
@@ -927,12 +936,18 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   detailChartWrap: { alignItems: 'center' },
+  chartLinksRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginTop: spacing.xs,
+  },
   fullChartLink: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    marginTop: spacing.xs,
   },
   fullChartLinkText: { fontFamily: fonts.semiBold, fontSize: 11.5, color: colors.primary },
   qtyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.sm },

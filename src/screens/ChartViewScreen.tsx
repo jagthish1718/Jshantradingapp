@@ -289,6 +289,12 @@ export default function ChartViewScreen({ navigation, route }: Props) {
             <Text style={styles.headerSymbol}>{displaySymbol}</Text>
             <Text style={styles.headerName}>{displayName}</Text>
           </View>
+          {!option && (
+            <Pressable style={styles.proChartButton} onPress={() => navigation.navigate('ProChart', { symbol: instrument.symbol })}>
+              <Ionicons name="analytics-outline" size={14} color="#fff" />
+              <Text style={styles.proChartButtonText}>Pro</Text>
+            </Pressable>
+          )}
         </View>
         <View style={styles.priceRow}>
           <Text style={styles.headerPrice}>{formatRupees(livePrice)}</Text>
@@ -376,6 +382,16 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  proChartButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
+  },
+  proChartButtonText: { fontFamily: fonts.semiBold, fontSize: 11.5, color: '#fff' },
   headerSymbol: { fontFamily: fonts.bold, fontSize: 17, color: '#fff' },
   headerName: { fontFamily: fonts.regular, fontSize: 11.5, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
   priceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
