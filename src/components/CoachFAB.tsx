@@ -53,8 +53,16 @@ export default function CoachFAB() {
   const { language } = useLanguage();
   const [introSeen, setIntroSeen] = useState<boolean | null>(null); // null = not loaded yet
   const [pos, setPos] = useState(defaultPosition);
+  const posRef = useRef(pos);
   const dragStartRef = useRef(pos);
   const draggedRef = useRef(false);
+
+  // PanResponder's callbacks are created once (inside useRef) and would
+  // otherwise always see the `pos` from that very first render. Keep a
+  // ref in sync so drag-start always reads the FAB's true current spot.
+  useEffect(() => {
+    posRef.current = pos;
+  }, [pos]);
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.coachIntroSeen)
@@ -83,7 +91,7 @@ export default function CoachFAB() {
       // still fires normally for a tap.
       onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dx) > 4 || Math.abs(gesture.dy) > 4,
       onPanResponderGrant: () => {
-        dragStartRef.current = pos;
+        dragStartRef.current = posRef.current;
         draggedRef.current = false;
       },
       onPanResponderMove: (_evt, gesture) => {

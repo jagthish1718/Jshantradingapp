@@ -211,9 +211,21 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
   setTimeout(resizeChart, 1500);
 
   var entryLine = null;
+  var entryPrice = null;
+  var entryQty = null;
   var currentCandles = [];
-  var markersHandle = LightweightCharts.createSeriesMarkers(candleSeries, []);
+  // createSeriesMarkers can throw if the CDN build doesn't expose it on the
+  // global namespace -- guard it so a failure here can't silently kill every
+  // click handler registered further down (that was breaking ALL the
+  // drawing tools, not just the arrow markers).
+  var markersHandle = null;
+  try {
+    markersHandle = LightweightCharts.createSeriesMarkers(candleSeries, []);
+  } catch (e) {
+    markersHandle = null;
+  }
   var allMarkers = [];
+  var rays = [];
 
   function nearestCandleTime(t) {
     if (!currentCandles.length) return null;
@@ -300,11 +312,25 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
     macdHistSeries.setData(times.map(function (t, i) { return { time: t, value: hist[i] || 0, color: (hist[i] || 0) >= 0 ? '${upColor}' : '${downColor}' }; }));
   }
 
+  // Horizontal Ray: unlike a fixed 2-point trend line, its right end
+  // should keep crawling forward to the newest candle as the chart keeps
+  // live-ticking -- that's what makes it behave like an actual ray.
+  function extendRays(latestTime) {
+    for (var i = 0; i < rays.length; i++) {
+      var r = rays[i];
+      var endT = Math.max(latestTime, r.startTime + 60);
+      try {
+        r.ref.setData([{ time: r.startTime, value: r.price }, { time: endT, value: r.price }]);
+      } catch (e) {}
+    }
+  }
+
   function applyCandles(candles) {
     currentCandles = candles;
     candleSeries.setData(candles.map(toBar));
     volSeries.setData(candles.map(toVolBar));
     recomputeIndicators(candles);
+    if (candles.length) extendRays(candles[candles.length - 1].time);
     chart.timeScale().fitContent();
     resizeChart();
   }
@@ -320,14 +346,37 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
     candleSeries.update(toBar(c));
     volSeries.update(toVolBar(c));
     recomputeIndicators(currentCandles);
+    extendRays(c.time);
   };
-  window.setEntryPrice = function (price) {
+
+  function entryLineTitle(price, ltp) {
+    var qtyPart = entryQty ? ('  x' + entryQty) : '';
+    if (ltp === null || ltp === undefined || isNaN(ltp) || !entryQty) {
+      return 'Entry ' + price.toFixed(2) + qtyPart;
+    }
+    var pnl = (ltp - price) * entryQty;
+    var pct = price !== 0 ? ((ltp - price) / price) * 100 : 0;
+    var sign = pnl >= 0 ? '+' : '';
+    return 'Entry ' + price.toFixed(2) + qtyPart + '  ' + sign + pnl.toFixed(2) + ' (' + sign + pct.toFixed(2) + '%)';
+  }
+
+  window.setEntryPrice = function (price, qty) {
+    entryPrice = price;
+    entryQty = (typeof qty === 'number' && !isNaN(qty)) ? qty : null;
     if (entryLine) candleSeries.removePriceLine(entryLine);
     entryLine = candleSeries.createPriceLine({
       price: price, color: '#2962ff', lineWidth: 2,
       lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true,
-      title: 'Entry ' + price.toFixed(2),
+      title: entryLineTitle(price, null),
     });
+  };
+
+  // Called on every live tick so the entry line's own label always shows
+  // the running P&L for exactly the quantity this position holds -- right
+  // where the student is already looking, not just in the header above.
+  window.updateEntryPnl = function (ltp) {
+    if (!entryLine || entryPrice === null) return;
+    entryLine.applyOptions({ title: entryLineTitle(entryPrice, ltp) });
   };
 
   // Drawing tools -- tap-to-place rather than drag-to-draw: simpler and
@@ -373,8 +422,9 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
       else chart.removeSeries(d.ref);
     });
     drawings = [];
+    rays = [];
     allMarkers = [];
-    markersHandle.setMarkers([]);
+    if (markersHandle) markersHandle.setMarkers([]);
     pending = null;
     if (TWO_TAP_TOOLS.indexOf(tool) !== -1) hintEl.textContent = 'Tap first point';
   };
@@ -424,7 +474,8 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
         color: '#ff6d00', lineWidth: 2, lastValueVisible: false, priceLineVisible: false,
       }, 0);
       rayLine.setData([{ time: rTime, value: price }, { time: endT, value: price }]);
-      drawings.push({ type: 'trend', ref: rayLine });
+      drawings.push({ type: 'ray', ref: rayLine });
+      rays.push({ ref: rayLine, startTime: rTime, price: price });
       return;
     }
 
@@ -461,7 +512,7 @@ function buildChartHtml(dark: boolean, colors: ThemeColors) {
         shape: tool === 'arrowup' ? 'arrowUp' : 'arrowDown',
       });
       allMarkers.sort(function (a, b) { return a.time - b.time; });
-      markersHandle.setMarkers(allMarkers);
+      if (markersHandle) markersHandle.setMarkers(allMarkers);
       return;
     }
 
@@ -569,6 +620,7 @@ export default function PositionChartScreen({ navigation, route }: Props) {
       const jsonPayload = JSON.stringify(lastDisplay);
       const jsLiteral = JSON.stringify(jsonPayload);
       webviewRef.current?.injectJavaScript(`window.updateLastCandle && window.updateLastCandle(${jsLiteral}); true;`);
+      webviewRef.current?.injectJavaScript(`window.updateEntryPnl && window.updateEntryPnl(${lastDisplay.c}); true;`);
       bump((n) => n + 1);
     });
     return unsub;
@@ -653,7 +705,10 @@ export default function PositionChartScreen({ navigation, route }: Props) {
 
   const onWebViewLoad = () => {
     pushFullSeries();
-    webviewRef.current?.injectJavaScript(`window.setEntryPrice && window.setEntryPrice(${avgPrice}); true;`);
+    webviewRef.current?.injectJavaScript(
+      `window.setEntryPrice && window.setEntryPrice(${avgPrice}, ${qty}); true;`
+    );
+    webviewRef.current?.injectJavaScript(`window.updateEntryPnl && window.updateEntryPnl(${livePrice}); true;`);
   };
 
   return (

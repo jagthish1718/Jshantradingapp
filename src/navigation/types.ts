@@ -12,7 +12,7 @@ export type HomeStackParamList = {
   Checklist: undefined;
   PaperTrading: undefined;
   TradingJournal: undefined;
-  ProChart: { symbol: string };
+  ProChart: { symbol: string; option?: OptionMeta };
   PositionChart: { symbol: string; qty: number; avgPrice: number; option?: OptionMeta };
   OptionsChain: undefined;
   OptionOrder: {

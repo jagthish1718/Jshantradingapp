@@ -183,12 +183,16 @@ export default function OptionsChainScreen({ navigation }: Props) {
     });
   };
 
-  const goToChart = (_strike: number, _optType: 'CE' | 'PE') => {
+  const goToChart = (strike: number, optType: 'CE' | 'PE') => {
     // The Pro Chart is a real TradingView chart of the underlying — it
     // can't plot a synthetic option premium, so this opens the
     // underlying's real chart instead (still useful context for the
-    // strike being viewed).
-    navigation.navigate('ProChart', { symbol: underlying.symbol });
+    // strike being viewed). We still pass the option details along so
+    // this screen can show a Buy/Sell button for that exact strike.
+    navigation.navigate('ProChart', {
+      symbol: underlying.symbol,
+      option: { underlying: underlying.symbol, strike, type: optType, expiry, lotSize },
+    });
   };
 
   return (

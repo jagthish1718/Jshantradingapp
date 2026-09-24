@@ -71,9 +71,24 @@ function buildUrl(symbol: string, dark: boolean) {
 export default function ProChartScreen({ navigation, route }: Props) {
   const { isDark, colors } = useTheme();
   const styles = makeStyles(colors);
-  const { symbol } = route.params;
+  const { symbol, option } = route.params;
   const tvSymbol = TV_SYMBOL[symbol] ?? `NSE:${symbol.replace(/\s+/g, '')}`;
   const url = useMemo(() => buildUrl(tvSymbol, isDark), [tvSymbol, isDark]);
+
+  // Viewing an option's strike here (e.g. from the Options Chain's "Chart"
+  // button) -- let the student buy/sell that exact option right from this
+  // chart too, instead of forcing a back-and-forth to the chain screen.
+  const goTrade = (side: 'BUY' | 'SELL') => {
+    if (!option) return;
+    navigation.navigate('OptionOrder', {
+      underlying: option.underlying,
+      strike: option.strike,
+      optType: option.type,
+      expiry: option.expiry,
+      lotSize: option.lotSize,
+      side,
+    });
+  };
 
   return (
     <SafeAreaView style={styles.root}>
@@ -83,9 +98,25 @@ export default function ProChartScreen({ navigation, route }: Props) {
         </Pressable>
         <View style={{ flex: 1, marginLeft: spacing.sm }}>
           <Text style={styles.headerTitle}>Pro Chart</Text>
-          <Text style={styles.headerSub}>{symbol} - live market data</Text>
+          <Text style={styles.headerSub}>
+            {option ? `${symbol} ${option.strike} ${option.type}` : symbol} - live market data
+          </Text>
         </View>
       </View>
+
+      {option && (
+        <View style={styles.quickTradeRow}>
+          <Pressable style={[styles.quickTradeButton, styles.buyButton]} onPress={() => goTrade('BUY')}>
+            <Text style={styles.quickTradeLabel}>BUY</Text>
+          </Pressable>
+          <Text style={styles.quickTradeHint}>
+            {option.type} {option.strike} · Lot {option.lotSize}
+          </Text>
+          <Pressable style={[styles.quickTradeButton, styles.sellButton]} onPress={() => goTrade('SELL')}>
+            <Text style={styles.quickTradeLabel}>SELL</Text>
+          </Pressable>
+        </View>
+      )}
 
       <WebView
         source={{ uri: url }}
@@ -139,5 +170,20 @@ const makeStyles = (colors: ThemeColors) =>
     },
     headerTitle: { fontFamily: fonts.bold, fontSize: 16, color: '#fff' },
     headerSub: { fontFamily: fonts.regular, fontSize: 11.5, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
+    quickTradeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    quickTradeButton: { flex: 1, alignItems: 'center', borderRadius: 10, paddingVertical: 8 },
+    buyButton: { backgroundColor: colors.primary },
+    sellButton: { backgroundColor: colors.danger },
+    quickTradeLabel: { fontFamily: fonts.bold, fontSize: 12.5, color: '#fff', letterSpacing: 0.5 },
+    quickTradeHint: { fontFamily: fonts.regular, fontSize: 10, color: colors.textLight, textAlign: 'center' },
     webview: { flex: 1, backgroundColor: colors.background },
   });
