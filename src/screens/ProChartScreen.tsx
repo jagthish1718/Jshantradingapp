@@ -10,7 +10,7 @@ import type { HomeStackParamList } from '../navigation/types';
 
 // Maps this app's own instrument symbols (src/data/instruments.ts) to the
 // exact ticker TradingView's public widget expects. Add a new instrument's
-// mapping here whenever one is added to INSTRUMENTS — the widget falls
+// mapping here whenever one is added to INSTRUMENTS -- the widget falls
 // back to a plain "NSE:<symbol>" guess otherwise, which is right for most
 // single stocks but wrong for the Nifty 50 index.
 const TV_SYMBOL: Record<string, string> = {
@@ -24,48 +24,48 @@ const TV_SYMBOL: Record<string, string> = {
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ProChart'>;
 
-// A real TradingView chart (candles, indicators, drawing tools — trend
+// A real TradingView chart (candles, indicators, drawing tools -- trend
 // lines, Fibonacci, the works) embedded via TradingView's own free,
 // no-signup "Advanced Real-Time Chart" widget. This shows the REAL
 // market's price action on the real symbol, not this app's simulated
-// paper-trading price — it's for reading and marking up a chart the way a
+// paper-trading price -- it's for reading and marking up a chart the way a
 // real trader would, not for placing an order (that stays on the Paper
 // Trading tab's own screen, which is intentionally kept simple).
-function buildHtml(symbol: string, dark: boolean) {
-  const theme = dark ? 'dark' : 'light';
-  const bg = dark ? '#131722' : '#ffffff';
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <style>
-    html, body { margin:0; padding:0; height:100%; background:${bg}; }
-    #tv_chart { height:100%; width:100%; }
-  </style>
-</head>
-<body>
-  <div id="tv_chart"></div>
-  <script src="https://s3.tradingview.com/tv.js"></script>
-  <script>
-    new TradingView.widget({
-      autosize: true,
-      symbol: "${symbol}",
-      interval: "15",
-      timezone: "Asia/Kolkata",
-      theme: "${theme}",
-      style: "1",
-      locale: "en",
-      toolbar_bg: "${bg}",
-      enable_publishing: false,
-      allow_symbol_change: false,
-      hide_side_toolbar: false,
-      withdateranges: true,
-      studies: ["RSI@tv-basicstudies", "MACD@tv-basicstudies"],
-      container_id: "tv_chart"
-    });
-  </script>
-</body>
-</html>`;
+//
+// We navigate the WebView directly to TradingView's own widget page
+// (s.tradingview.com/widgetembed) instead of wrapping the widget script
+// in our own blank HTML shell. That matters for one reason: when the
+// widget is loaded from OUR html (no real origin), any TradingView login
+// it starts (the "Join for free" prompt that unlocks the full indicator
+// list and every drawing tool) can't reliably keep its session -- cookies
+// set on tradingview.com don't stick to a page with no stable origin of
+// its own. Loading the real widgetembed URL as the top-level page makes
+// TradingView.com the WebView's actual origin, so a student who signs in
+// once (free account) stays signed in on this screen from then on, same
+// as any other website login in the app.
+function buildUrl(symbol: string, dark: boolean) {
+  const bg = dark ? '131722' : 'ffffff';
+  const params: Record<string, string> = {
+    symbol,
+    interval: '15',
+    hidesidetoolbar: '0',
+    saveimage: '0',
+    toolbarbg: bg,
+    studies: JSON.stringify(['RSI@tv-basicstudies', 'MACD@tv-basicstudies']),
+    hideideas: '1',
+    theme: dark ? 'dark' : 'light',
+    style: '1',
+    timezone: 'Asia/Kolkata',
+    studies_overrides: '{}',
+    overrides: '{}',
+    enabled_features: '[]',
+    disabled_features: '[]',
+    locale: 'en',
+  };
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  return `https://s.tradingview.com/widgetembed/?${qs}`;
 }
 
 export default function ProChartScreen({ navigation, route }: Props) {
@@ -73,7 +73,7 @@ export default function ProChartScreen({ navigation, route }: Props) {
   const styles = makeStyles(colors);
   const { symbol } = route.params;
   const tvSymbol = TV_SYMBOL[symbol] ?? `NSE:${symbol.replace(/\s+/g, '')}`;
-  const html = useMemo(() => buildHtml(tvSymbol, isDark), [tvSymbol, isDark]);
+  const url = useMemo(() => buildUrl(tvSymbol, isDark), [tvSymbol, isDark]);
 
   return (
     <SafeAreaView style={styles.root}>
@@ -83,24 +83,27 @@ export default function ProChartScreen({ navigation, route }: Props) {
         </Pressable>
         <View style={{ flex: 1, marginLeft: spacing.sm }}>
           <Text style={styles.headerTitle}>Pro Chart</Text>
-          <Text style={styles.headerSub}>{symbol} · live market data</Text>
+          <Text style={styles.headerSub}>{symbol} - live market data</Text>
         </View>
       </View>
 
       <View style={styles.infoBanner}>
         <Ionicons name="information-circle-outline" size={14} color={colors.primary} />
         <Text style={styles.infoBannerText}>
-          Real TradingView chart with indicators & drawing tools. This shows the real market — to place a practice
-          order, go back to Paper Trading.
+          Real TradingView chart. Tap "Join for free" once inside the chart (a free TradingView account) to unlock
+          every indicator and drawing tool -- it stays signed in after that. To place a practice order, go back to
+          Paper Trading.
         </Text>
       </View>
 
       <WebView
-        source={{ html }}
+        source={{ uri: url }}
         style={styles.webview}
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
         startInLoadingState
       />
     </SafeAreaView>
