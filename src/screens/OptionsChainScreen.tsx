@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, Pressable, ScrollView, SafeAreaView, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Polyline } from 'react-native-svg';
 import { useThemeColors } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
 import { spacing, radius, fonts } from '../theme/spacing';
 import { INSTRUMENTS } from '../data/instruments';
-import { ensureStarted, subscribe, getPrice, optionPremium, optionGreeks } from '../data/marketSim';
+import { ensureStarted, subscribe, getPrice, getHistory, optionPremium, optionGreeks } from '../data/marketSim';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { HomeStackParamList } from '../navigation/types';
 
@@ -14,16 +15,20 @@ const OPTIONABLE = INSTRUMENTS.filter((i) => i.hasOptions);
 type StrikeRow = {
   strike: number;
   isAtm: boolean;
+  ceItm: boolean;
+  peItm: boolean;
   ceLtp: number;
   ceOiRaw: number;
   ceChange: number;
   ceDelta: number;
   ceIv: number;
+  ceHistory: number[];
   peLtp: number;
   peOiRaw: number;
   peChange: number;
   peDelta: number;
   peIv: number;
+  peHistory: number[];
 };
 
 function nextExpiries(count = 3): string[] {
@@ -45,6 +50,28 @@ function formatOi(n: number): string {
 
 function formatRupees(n: number) {
   return `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
+// Small in-app trend line for a strike's own premium history -- not a
+// TradingView chart, since option premiums here are simulated off our own
+// spot-price engine, not a real market symbol TradingView has data for.
+// Cheap SVG polyline, no network/WebView needed per row.
+function Sparkline({ points, color }: { points: number[]; color: string }) {
+  const width = 30;
+  const height = 14;
+  if (points.length < 2) return <View style={{ width, height }} />;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const step = width / (points.length - 1);
+  const coords = points
+    .map((p, i) => `${(i * step).toFixed(1)},${(height - ((p - min) / range) * height).toFixed(1)}`)
+    .join(' ');
+  return (
+    <Svg width={width} height={height}>
+      <Polyline points={coords} fill="none" stroke={color} strokeWidth={1.3} strokeLinejoin="round" strokeLinecap="round" />
+    </Svg>
+  );
 }
 
 type ChainMode = 'OI' | 'Greeks';
@@ -85,6 +112,7 @@ export default function OptionsChainScreen({ navigation }: Props) {
   const atm = Math.round(spot / step) * step;
 
   const strikes: StrikeRow[] = useMemo(() => {
+    const spotHist = getHistory(underlying.symbol);
     const rows: StrikeRow[] = [];
     for (let i = -6; i <= 6; i++) {
       const strike = atm + i * step;
@@ -93,21 +121,27 @@ export default function OptionsChainScreen({ navigation }: Props) {
       rows.push({
         strike,
         isAtm: strike === atm,
+        ceItm: strike < spot,
+        peItm: strike > spot,
         ceLtp: optionPremium(spot, strike, true),
         ceOiRaw: 2000 + Math.random() * 60000 * (1 / (1 + Math.abs(i) * 0.3)),
         ceChange: (Math.random() - 0.5) * 18,
         ceDelta: ceGreeks.delta,
         ceIv: ceGreeks.iv,
+        ceHistory: spotHist.map((s) => optionPremium(s, strike, true)),
         peLtp: optionPremium(spot, strike, false),
         peOiRaw: 2000 + Math.random() * 60000 * (1 / (1 + Math.abs(i) * 0.3)),
         peChange: (Math.random() - 0.5) * 18,
         peDelta: peGreeks.delta,
         peIv: peGreeks.iv,
+        peHistory: spotHist.map((s) => optionPremium(s, strike, false)),
       });
     }
     return rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [atm, step, Math.round(spot)]);
+  }, [atm, step, Math.round(spot), underlying.symbol]);
+
+  const maxOi = useMemo(() => Math.max(1, ...strikes.flatMap((r) => [r.ceOiRaw, r.peOiRaw])), [strikes]);
 
   const lotSize = underlying.lotSize ?? 50;
 
@@ -196,11 +230,11 @@ export default function OptionsChainScreen({ navigation }: Props) {
           <Text style={styles.statLabel}>PCR</Text>
           <Text style={styles.statValue}>{pcr.toFixed(2)}</Text>
         </View>
-        <View style={styles.statBox}>
+        <View style={[styles.statBox, styles.statBoxDivider]}>
           <Text style={styles.statLabel}>Max Pain</Text>
           <Text style={styles.statValue}>{maxPain}</Text>
         </View>
-        <View style={styles.statBox}>
+        <View style={[styles.statBox, styles.statBoxDivider]}>
           <Text style={styles.statLabel}>ATM IV</Text>
           <Text style={styles.statValue}>{atmIv.toFixed(1)}%</Text>
         </View>
@@ -224,45 +258,64 @@ export default function OptionsChainScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.tableHeader}>
-        <Text style={[styles.tableHeaderText, { flex: 1.3, textAlign: 'left' }]}>{mode === 'OI' ? 'OI' : 'IV / Δ'}</Text>
-        <Text style={[styles.tableHeaderText, { flex: 1 }]}>CALLS</Text>
-        <Text style={[styles.tableHeaderText, { flex: 0.9 }]}>STRIKE</Text>
-        <Text style={[styles.tableHeaderText, { flex: 1 }]}>PUTS</Text>
-        <Text style={[styles.tableHeaderText, { flex: 1.3, textAlign: 'right' }]}>{mode === 'OI' ? 'OI' : 'IV / Δ'}</Text>
+        <Text style={[styles.tableHeaderText, { flex: 1.1, textAlign: 'left' }]}>{mode === 'OI' ? 'OI' : 'IV / Δ'}</Text>
+        <Text style={[styles.tableHeaderText, { flex: 1.35 }]}>CALLS</Text>
+        <Text style={[styles.tableHeaderText, { flex: 0.7 }]}>STRIKE</Text>
+        <Text style={[styles.tableHeaderText, { flex: 1.35 }]}>PUTS</Text>
+        <Text style={[styles.tableHeaderText, { flex: 1.1, textAlign: 'right' }]}>{mode === 'OI' ? 'OI' : 'IV / Δ'}</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: spacing.xl }}>
         {strikes.map((row) => (
           <View key={row.strike} style={[styles.row, row.isAtm && styles.rowAtm]}>
             {mode === 'OI' ? (
-              <Text style={[styles.oiText, { flex: 1.3, textAlign: 'left' }]}>{formatOi(row.ceOiRaw)}</Text>
+              <View style={{ flex: 1.1 }}>
+                <Text style={[styles.oiText, { textAlign: 'left' }]}>{formatOi(row.ceOiRaw)}</Text>
+                <View style={styles.oiBarTrack}>
+                  <View style={[styles.oiBarFill, { width: `${(row.ceOiRaw / maxOi) * 100}%`, backgroundColor: colors.success }]} />
+                </View>
+              </View>
             ) : (
-              <View style={{ flex: 1.3 }}>
+              <View style={{ flex: 1.1 }}>
                 <Text style={styles.greekText}>IV {row.ceIv.toFixed(1)}</Text>
                 <Text style={styles.greekText}>Δ {row.ceDelta.toFixed(2)}</Text>
               </View>
             )}
-            <View style={{ flex: 1, alignItems: 'flex-start' }}>
-              <Pressable onPress={() => goToOrder(row.strike, 'CE', 'BUY')} onLongPress={() => goToOrder(row.strike, 'CE', 'SELL')}>
-                <Text style={styles.ltpText}>{row.ceLtp.toFixed(1)}</Text>
-                <Text style={[styles.chngText, { color: row.ceChange >= 0 ? colors.success : colors.danger }]}>
-                  {row.ceChange >= 0 ? '+' : ''}
-                  {row.ceChange.toFixed(1)}%
-                </Text>
+            <View style={[{ flex: 1.35, alignItems: 'flex-start' }, row.ceItm && styles.itmCellCe]}>
+              <Pressable
+                style={styles.ltpRow}
+                onPress={() => goToOrder(row.strike, 'CE', 'BUY')}
+                onLongPress={() => goToOrder(row.strike, 'CE', 'SELL')}
+              >
+                <View>
+                  <Text style={styles.ltpText}>{row.ceLtp.toFixed(1)}</Text>
+                  <Text style={[styles.chngText, { color: row.ceChange >= 0 ? colors.success : colors.danger }]}>
+                    {row.ceChange >= 0 ? '+' : ''}
+                    {row.ceChange.toFixed(1)}%
+                  </Text>
+                </View>
+                <Sparkline points={row.ceHistory} color={row.ceChange >= 0 ? colors.success : colors.danger} />
               </Pressable>
               <Pressable style={styles.chartIconBtn} onPress={() => goToChart(row.strike, 'CE')} hitSlop={6}>
                 <Ionicons name="stats-chart-outline" size={10} color={colors.textMuted} />
                 <Text style={styles.chartIconLabel}>Chart</Text>
               </Pressable>
             </View>
-            <Text style={[styles.strikeText, { flex: 0.9 }, row.isAtm && styles.strikeTextAtm]}>{row.strike}</Text>
-            <View style={{ flex: 1, alignItems: 'flex-end' }}>
-              <Pressable onPress={() => goToOrder(row.strike, 'PE', 'BUY')} onLongPress={() => goToOrder(row.strike, 'PE', 'SELL')}>
-                <Text style={[styles.ltpText, { textAlign: 'right' }]}>{row.peLtp.toFixed(1)}</Text>
-                <Text style={[styles.chngText, { color: row.peChange >= 0 ? colors.success : colors.danger, textAlign: 'right' }]}>
-                  {row.peChange >= 0 ? '+' : ''}
-                  {row.peChange.toFixed(1)}%
-                </Text>
+            <Text style={[styles.strikeText, { flex: 0.7 }, row.isAtm && styles.strikeTextAtm]}>{row.strike}</Text>
+            <View style={[{ flex: 1.35, alignItems: 'flex-end' }, row.peItm && styles.itmCellPe]}>
+              <Pressable
+                style={[styles.ltpRow, { flexDirection: 'row-reverse' }]}
+                onPress={() => goToOrder(row.strike, 'PE', 'BUY')}
+                onLongPress={() => goToOrder(row.strike, 'PE', 'SELL')}
+              >
+                <View>
+                  <Text style={[styles.ltpText, { textAlign: 'right' }]}>{row.peLtp.toFixed(1)}</Text>
+                  <Text style={[styles.chngText, { color: row.peChange >= 0 ? colors.success : colors.danger, textAlign: 'right' }]}>
+                    {row.peChange >= 0 ? '+' : ''}
+                    {row.peChange.toFixed(1)}%
+                  </Text>
+                </View>
+                <Sparkline points={row.peHistory} color={row.peChange >= 0 ? colors.success : colors.danger} />
               </Pressable>
               <Pressable style={styles.chartIconBtn} onPress={() => goToChart(row.strike, 'PE')} hitSlop={6}>
                 <Text style={styles.chartIconLabel}>Chart</Text>
@@ -270,9 +323,14 @@ export default function OptionsChainScreen({ navigation }: Props) {
               </Pressable>
             </View>
             {mode === 'OI' ? (
-              <Text style={[styles.oiText, { flex: 1.3, textAlign: 'right' }]}>{formatOi(row.peOiRaw)}</Text>
+              <View style={{ flex: 1.1, alignItems: 'flex-end' }}>
+                <Text style={[styles.oiText, { textAlign: 'right' }]}>{formatOi(row.peOiRaw)}</Text>
+                <View style={[styles.oiBarTrack, { flexDirection: 'row-reverse' }]}>
+                  <View style={[styles.oiBarFill, { width: `${(row.peOiRaw / maxOi) * 100}%`, backgroundColor: colors.danger }]} />
+                </View>
+              </View>
             ) : (
-              <View style={{ flex: 1.3, alignItems: 'flex-end' }}>
+              <View style={{ flex: 1.1, alignItems: 'flex-end' }}>
                 <Text style={styles.greekText}>IV {row.peIv.toFixed(1)}</Text>
                 <Text style={styles.greekText}>Δ {row.peDelta.toFixed(2)}</Text>
               </View>
@@ -319,6 +377,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   spotValue: { fontFamily: fonts.displayBold, fontSize: 20, color: '#fff' },
   statsRow: { flexDirection: 'row', backgroundColor: colors.surface, paddingVertical: spacing.sm },
   statBox: { flex: 1, alignItems: 'center' },
+  statBoxDivider: { borderLeftWidth: 1, borderLeftColor: colors.divider },
   statLabel: { fontFamily: fonts.regular, fontSize: 10.5, color: colors.textMuted, letterSpacing: 0.3 },
   statValue: { fontFamily: fonts.bold, fontSize: 14, color: colors.text, marginTop: 2 },
   subRow: {
@@ -359,6 +418,11 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   oiText: { fontFamily: fonts.regular, fontSize: 10.5, color: colors.textMuted },
   greekText: { fontFamily: fonts.regular, fontSize: 9.5, color: colors.textMuted },
   ltpText: { fontFamily: fonts.semiBold, fontSize: 12.5, color: colors.text, textAlign: 'left' },
+  ltpRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  oiBarTrack: { height: 3, borderRadius: 2, backgroundColor: colors.divider, marginTop: 3, overflow: 'hidden' },
+  oiBarFill: { height: 3, borderRadius: 2 },
+  itmCellCe: { backgroundColor: 'rgba(46, 160, 90, 0.07)', borderRadius: radius.sm, marginLeft: -4, paddingLeft: 4 },
+  itmCellPe: { backgroundColor: 'rgba(220, 60, 60, 0.07)', borderRadius: radius.sm, marginRight: -4, paddingRight: 4 },
   chngText: { fontFamily: fonts.regular, fontSize: 9.5, marginTop: 1 },
   strikeText: { fontFamily: fonts.bold, fontSize: 12.5, color: colors.text, textAlign: 'center' },
   strikeTextAtm: { color: colors.primary },
