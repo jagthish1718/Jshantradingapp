@@ -7,6 +7,7 @@ export const STORAGE_KEYS = {
   paperTrading: 'nivesha:paper_trading',
   journal: 'nivesha:journal',
   journalInsightCache: 'nivesha:journal:insight_cache',
+  journalDismissedTradeKeys: 'nivesha:journal:dismissed_trade_keys',
   coachIntroSeen: 'nivesha:coach_intro_seen_v4',
   coachFabPosition: 'nivesha:coach_fab_position',
   themeMode: 'nivesha:pref:theme_mode',

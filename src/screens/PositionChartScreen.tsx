@@ -576,7 +576,10 @@ export default function PositionChartScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     ensureStarted();
-    const anchor = getPrice(underlyingSymbol) || avgPrice;
+    // Anchor the synthetic history off the live price; only fall back to
+    // avgPrice (for an owned position) or a sane default when getPrice
+    // hasn't ticked yet (a brand-new instrument).
+    const anchor = getPrice(underlyingSymbol) || avgPrice || 100;
     underlyingCandlesRef.current = genCandles(anchor, tf.count, volForMinutes(tf.minutes), tf.minutes * 60);
     rolloverAtRef.current = Date.now();
     pushFullSeries();
@@ -701,14 +704,19 @@ export default function PositionChartScreen({ navigation, route }: Props) {
   };
 
   const livePrice = option ? optionPremium(getPrice(underlyingSymbol), option.strike, isCall) : getPrice(underlyingSymbol);
-  const pnl = (livePrice - avgPrice) * qty;
+  // Browsing a strike before actually taking the trade -- there's no
+  // entry/qty yet, so skip the entry line + P&L entirely rather than
+  // showing a meaningless "entry" at whatever price happened to load.
+  const pnl = avgPrice !== undefined && qty !== undefined ? (livePrice - avgPrice) * qty : null;
 
   const onWebViewLoad = () => {
     pushFullSeries();
-    webviewRef.current?.injectJavaScript(
-      `window.setEntryPrice && window.setEntryPrice(${avgPrice}, ${qty}); true;`
-    );
-    webviewRef.current?.injectJavaScript(`window.updateEntryPnl && window.updateEntryPnl(${livePrice}); true;`);
+    if (avgPrice !== undefined && qty !== undefined) {
+      webviewRef.current?.injectJavaScript(
+        `window.setEntryPrice && window.setEntryPrice(${avgPrice}, ${qty}); true;`
+      );
+      webviewRef.current?.injectJavaScript(`window.updateEntryPnl && window.updateEntryPnl(${livePrice}); true;`);
+    }
   };
 
   return (
@@ -720,13 +728,17 @@ export default function PositionChartScreen({ navigation, route }: Props) {
         <View style={{ flex: 1, marginLeft: spacing.sm }}>
           <Text style={styles.headerTitle}>{symbol}</Text>
           <Text style={styles.headerSub}>
-            Entry {formatRupees(avgPrice)} · LTP {formatRupees(livePrice)}
+            {avgPrice !== undefined
+              ? `Entry ${formatRupees(avgPrice)} · LTP ${formatRupees(livePrice)}`
+              : `LTP ${formatRupees(livePrice)}`}
           </Text>
         </View>
-        <Text style={[styles.pnlText, { color: pnl >= 0 ? '#5CF08A' : '#FF8A8A' }]}>
-          {pnl >= 0 ? '+' : ''}
-          {formatRupees(pnl)}
-        </Text>
+        {pnl !== null && (
+          <Text style={[styles.pnlText, { color: pnl >= 0 ? '#5CF08A' : '#FF8A8A' }]}>
+            {pnl >= 0 ? '+' : ''}
+            {formatRupees(pnl)}
+          </Text>
+        )}
       </View>
 
       <View style={styles.quickTradeRow}>

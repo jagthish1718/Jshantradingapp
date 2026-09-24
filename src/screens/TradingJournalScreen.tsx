@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../context/ThemeContext';
 import type { ThemeColors } from '../theme/colors';
@@ -25,18 +26,13 @@ import { useEntitlements } from '../context/EntitlementsContext';
 import SubscriptionGate from '../components/SubscriptionGate';
 import { useLanguage } from '../context/LanguageContext';
 import { getJournalInsights, ApiKeyMissingError, CoachApiError } from '../services/aiCoach';
-
-type Direction = 'Buy' | 'Sell';
-
-type JournalEntry = {
-  id: string;
-  symbol: string;
-  direction: Direction;
-  entryPrice: number;
-  exitPrice: number | null;
-  notes: string;
-  date: string;
-};
+import type { SimState } from '../types/trading';
+import {
+  deriveAutoEntriesFromOrders,
+  mergeAutoJournalEntries,
+  type Direction,
+  type JournalEntry,
+} from '../utils/journalSync';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'TradingJournal'>;
 
@@ -57,23 +53,49 @@ export default function TradingJournalScreen({ navigation }: Props) {
   const [exitPrice, setExitPrice] = useState('');
   const [notes, setNotes] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEYS.journal);
-        if (raw) setEntries(JSON.parse(raw));
-      } catch {
-        // ignore
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, []);
-
   const persist = (next: JournalEntry[]) => {
     setEntries(next);
     AsyncStorage.setItem(STORAGE_KEYS.journal, JSON.stringify(next)).catch(() => {});
   };
+
+  // Pulls Paper Trading's own order history in and turns it into journal
+  // entries -- every actual trade (with its real entry/exit and P&L) shows
+  // up here automatically, instead of the journal only ever holding what
+  // was typed in by hand. Reads straight from storage (not React state) so
+  // it's correct on the very first focus too, before the initial load
+  // effect above has necessarily finished. Runs on every screen focus so a
+  // trade placed elsewhere shows up here as soon as the student comes back.
+  const syncFromPaperTrading = async () => {
+    try {
+      const [journalRaw, simRaw, dismissedRaw] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEYS.journal),
+        AsyncStorage.getItem(STORAGE_KEYS.paperTrading),
+        AsyncStorage.getItem(STORAGE_KEYS.journalDismissedTradeKeys),
+      ]);
+      const currentEntries: JournalEntry[] = journalRaw ? JSON.parse(journalRaw) : [];
+      const sim: SimState | null = simRaw ? JSON.parse(simRaw) : null;
+      const orders = sim && Array.isArray(sim.orders) ? sim.orders : [];
+      const dismissed = new Set<string>(dismissedRaw ? JSON.parse(dismissedRaw) : []);
+
+      const freshAuto = deriveAutoEntriesFromOrders(orders);
+      const merged = mergeAutoJournalEntries(currentEntries, freshAuto, dismissed);
+
+      if (JSON.stringify(merged) !== JSON.stringify(currentEntries)) {
+        setEntries(merged);
+        AsyncStorage.setItem(STORAGE_KEYS.journal, JSON.stringify(merged)).catch(() => {});
+      } else {
+        setEntries(currentEntries);
+      }
+    } catch {
+      // ignore -- the manually-loaded entries (if any) still render fine
+    } finally {
+      setLoaded(true);
+    }
+  };
+
+  useFocusEffect(() => {
+    syncFromPaperTrading();
+  });
 
   // A fresh insight is only worth re-generating (and re-spending an API
   // call) once the set of CLOSED trades actually changes — not on every
@@ -163,7 +185,31 @@ export default function TradingJournalScreen({ navigation }: Props) {
   const deleteEntry = (id: string) => {
     Alert.alert('Delete entry', 'Remove this journal entry?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => persist(entries.filter((e) => e.id !== id)) },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const target = entries.find((e) => e.id === id);
+          persist(entries.filter((e) => e.id !== id));
+          // An auto-generated entry (from Paper Trading) would otherwise
+          // just reappear on the next sync -- remember it was dismissed
+          // so it stays gone.
+          if (target?.tradeKey) {
+            try {
+              const raw = await AsyncStorage.getItem(STORAGE_KEYS.journalDismissedTradeKeys);
+              const dismissed: string[] = raw ? JSON.parse(raw) : [];
+              if (!dismissed.includes(target.tradeKey)) {
+                await AsyncStorage.setItem(
+                  STORAGE_KEYS.journalDismissedTradeKeys,
+                  JSON.stringify([...dismissed, target.tradeKey])
+                );
+              }
+            } catch {
+              // ignore -- worst case it reappears on next sync
+            }
+          }
+        },
+      },
     ]);
   };
 
@@ -356,6 +402,11 @@ export default function TradingJournalScreen({ navigation }: Props) {
                       </Text>
                     </View>
                     <Text style={styles.entrySymbol}>{entry.symbol}</Text>
+                    {entry.source === 'paper-trading' && (
+                      <View style={styles.autoBadge}>
+                        <Text style={styles.autoBadgeText}>Paper Trading</Text>
+                      </View>
+                    )}
                   </View>
                   <Pressable onPress={() => deleteEntry(entry.id)}>
                     <Ionicons name="trash-outline" size={16} color={colors.textLight} />
@@ -565,6 +616,15 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   directionBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.sm },
   directionBadgeText: { fontFamily: fonts.bold, fontSize: 10.5 },
   entrySymbol: { fontFamily: fonts.semiBold, fontSize: 14.5, color: colors.text },
+  autoBadge: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+  },
+  autoBadgeText: { fontFamily: fonts.medium, fontSize: 9.5, color: colors.textLight },
   entryPrices: { fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted, marginTop: spacing.sm },
   entryNotes: { fontFamily: fonts.regular, fontSize: 12.5, color: colors.text, marginTop: spacing.xs, lineHeight: 18 },
   entryBottomRow: {

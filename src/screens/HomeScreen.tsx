@@ -23,7 +23,7 @@ export default function HomeScreen({ navigation }: Props) {
   const styles = makeStyles(colors);
   const { name, photoUri } = useProfile();
 
-  const continueLearning: Tile[] = [
+  const learnAndPractice: Tile[] = [
     {
       icon: 'book',
       cardColor: colors.primary,
@@ -31,10 +31,16 @@ export default function HomeScreen({ navigation }: Props) {
       onPress: () => (navigation.getParent() as any)?.navigate('LessonsTab'),
     },
     {
-      icon: 'trophy',
-      cardColor: colors.gold,
-      label: 'Daily Quiz',
-      onPress: () => (navigation.getParent() as any)?.navigate('QuizTab'),
+      icon: 'trending-up',
+      cardColor: colors.teal,
+      label: 'Paper Trading',
+      onPress: () => navigation.navigate('PaperTrading'),
+    },
+    {
+      icon: 'journal',
+      cardColor: colors.purple,
+      label: 'Trading Journal',
+      onPress: () => navigation.navigate('TradingJournal'),
     },
     {
       icon: 'checkmark-done',
@@ -65,18 +71,12 @@ export default function HomeScreen({ navigation }: Props) {
     },
   ];
 
-  const practiceTools: Tile[] = [
+  const more: Tile[] = [
     {
-      icon: 'trending-up',
-      cardColor: colors.teal,
-      label: 'Paper Trading',
-      onPress: () => navigation.navigate('PaperTrading'),
-    },
-    {
-      icon: 'journal',
-      cardColor: colors.purple,
-      label: 'Trading Journal',
-      onPress: () => navigation.navigate('TradingJournal'),
+      icon: 'trophy',
+      cardColor: colors.gold,
+      label: 'Daily Quiz',
+      onPress: () => (navigation.getParent() as any)?.navigate('QuizTab'),
     },
   ];
 
@@ -122,14 +122,14 @@ export default function HomeScreen({ navigation }: Props) {
       </View>
 
       <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>Continue learning</Text>
-        <CardGrid tiles={continueLearning} styles={styles} />
-
-        <Text style={styles.sectionTitle}>Practice tools</Text>
-        <CardGrid tiles={practiceTools} styles={styles} />
+        <Text style={styles.sectionTitle}>Learn & practice</Text>
+        <BannerList tiles={learnAndPractice} styles={styles} />
 
         <Text style={styles.sectionTitle}>Markets</Text>
-        <CardGrid tiles={markets} styles={styles} />
+        <BannerList tiles={markets} styles={styles} />
+
+        <Text style={styles.sectionTitle}>More</Text>
+        <BannerList tiles={more} styles={styles} />
 
         <View style={{ height: spacing.xxl }} />
       </ScrollView>
@@ -137,32 +137,26 @@ export default function HomeScreen({ navigation }: Props) {
   );
 }
 
-function CardGrid({ tiles, styles }: { tiles: Tile[]; styles: ReturnType<typeof makeStyles> }) {
-  // If there's an odd one out, let the last tile span the full row instead
-  // of leaving empty space next to it.
-  const isLastOdd = tiles.length % 2 === 1;
+// Every card is a full-width, solid-color banner row now (not a 2-column
+// grid) -- reads as one clear scrollable list of destinations instead of a
+// tile board, and every row gets equal visual weight regardless of label
+// length.
+function BannerList({ tiles, styles }: { tiles: Tile[]; styles: ReturnType<typeof makeStyles> }) {
   return (
-    <View style={styles.cardGrid}>
-      {tiles.map((t, i) => {
-        const isTrailingOdd = isLastOdd && i === tiles.length - 1;
-        return (
-          <Pressable
-            key={t.label}
-            style={({ pressed }) => [
-              styles.card,
-              isTrailingOdd && styles.cardWide,
-              { backgroundColor: t.cardColor },
-              pressed && styles.cardPressed,
-            ]}
-            onPress={t.onPress}
-          >
-            <Ionicons name={t.icon} size={22} color="#fff" />
-            <Text style={[styles.cardLabel, isTrailingOdd && styles.cardLabelWide]} numberOfLines={2}>
-              {t.label}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <View style={styles.bannerList}>
+      {tiles.map((t) => (
+        <Pressable
+          key={t.label}
+          style={({ pressed }) => [styles.banner, { backgroundColor: t.cardColor }, pressed && styles.cardPressed]}
+          onPress={t.onPress}
+        >
+          <View style={styles.bannerIconWrap}>
+            <Ionicons name={t.icon} size={20} color="#fff" />
+          </View>
+          <Text style={styles.bannerLabel}>{t.label}</Text>
+          <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.85)" />
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -215,34 +209,25 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: spacing.sm,
   },
-  cardGrid: {
+  bannerList: { marginBottom: spacing.lg },
+  banner: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: spacing.lg,
-  },
-  card: {
-    width: '48.5%',
+    alignItems: 'center',
     borderRadius: radius.xl,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
-    justifyContent: 'space-between',
-    minHeight: 80,
-  },
-  cardWide: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
     minHeight: 60,
+    gap: spacing.md,
   },
+  bannerIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bannerLabel: { flex: 1, fontFamily: fonts.semiBold, fontSize: 14, color: '#fff' },
   cardPressed: { opacity: 0.85 },
-  cardLabel: {
-    fontFamily: fonts.semiBold,
-    fontSize: 13,
-    color: '#fff',
-    marginTop: spacing.sm,
-  },
-  cardLabelWide: { marginTop: 0, marginLeft: spacing.xs },
 });

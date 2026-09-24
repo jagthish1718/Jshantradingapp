@@ -13,7 +13,7 @@ export type HomeStackParamList = {
   PaperTrading: undefined;
   TradingJournal: undefined;
   ProChart: { symbol: string; option?: OptionMeta };
-  PositionChart: { symbol: string; qty: number; avgPrice: number; option?: OptionMeta };
+  PositionChart: { symbol: string; qty?: number; avgPrice?: number; option?: OptionMeta };
   OptionsChain: undefined;
   OptionOrder: {
     underlying: string;

@@ -184,12 +184,13 @@ export default function OptionsChainScreen({ navigation }: Props) {
   };
 
   const goToChart = (strike: number, optType: 'CE' | 'PE') => {
-    // The Pro Chart is a real TradingView chart of the underlying — it
-    // can't plot a synthetic option premium, so this opens the
-    // underlying's real chart instead (still useful context for the
-    // strike being viewed). We still pass the option details along so
-    // this screen can show a Buy/Sell button for that exact strike.
-    navigation.navigate('ProChart', {
+    // Our own candlestick chart (candles, indicators, drawing tools) for
+    // this exact strike's own premium -- not Pro Chart's real TradingView
+    // widget, which can only show the underlying and can't plot a
+    // synthetic option premium at all. Opened here purely to browse (no
+    // qty/avgPrice yet), with a Buy/Sell button right on the chart for
+    // when the student's ready to actually take the trade.
+    navigation.navigate('PositionChart', {
       symbol: underlying.symbol,
       option: { underlying: underlying.symbol, strike, type: optType, expiry, lotSize },
     });
