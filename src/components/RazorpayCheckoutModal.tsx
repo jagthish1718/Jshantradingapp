@@ -1,4 +1,4 @@
-import { Modal, View, Pressable, Text, StyleSheet } from 'react-native';
+import { Modal, View, Pressable, Text, StyleSheet, Linking } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../context/ThemeContext';
@@ -100,6 +100,14 @@ function buildCheckoutHtml(order: CheckoutOrder, userName?: string, userEmail?: 
 </html>`;
 }
 
+// A generic React Native WebView doesn't identify itself as a normal
+// mobile Chrome browser, so Razorpay's checkout.js can't tell it's safe to
+// offer the full UPI method set (QR code, "pay via app" intent buttons) --
+// it falls back to the one flow that works everywhere: type in a UPI ID.
+// Spoofing a real Android Chrome user agent is what unlocks the rest.
+const MOBILE_CHROME_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+
 export default function RazorpayCheckoutModal({
   visible,
   order,
@@ -114,6 +122,23 @@ export default function RazorpayCheckoutModal({
 
   if (!order) return null;
 
+  // The UPI "pay via app" buttons work by redirecting to a deep link like
+  // upi://pay?... (or gpay://, phonepe://, tez://, paytmmp://) -- a WebView
+  // has no idea what to do with a non-http(s) URL and just fails silently.
+  // Hand those off to the OS instead, which opens the actual app; let
+  // everything else (Razorpay's own pages, bank OTP redirects) load
+  // normally inside the WebView.
+  const handleShouldStartLoad = (request: { url: string }) => {
+    const url = request.url;
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('about:')) {
+      return true;
+    }
+    Linking.openURL(url).catch(() => {
+      onDebug?.(`[upi-app] could not open ${url} -- app probably not installed`);
+    });
+    return false;
+  };
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onDismiss}>
       <View style={styles.header}>
@@ -124,6 +149,8 @@ export default function RazorpayCheckoutModal({
       </View>
       <WebView
         source={{ html: buildCheckoutHtml(order, userName, userEmail) }}
+        userAgent={MOBILE_CHROME_USER_AGENT}
+        onShouldStartLoadWithRequest={handleShouldStartLoad}
         javaScriptEnabled
         domStorageEnabled
         thirdPartyCookiesEnabled
