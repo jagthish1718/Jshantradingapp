@@ -1,5 +1,6 @@
 export const STORAGE_KEYS = {
   onboardingDone: 'nivesha:onboarding_done',
+  termsAccepted: 'nivesha:terms_accepted_v1',
   language: 'nivesha:pref:language',
   bestScore: 'nivesha:quiz:best_score',
   entitlements: 'nivesha:entitlements',

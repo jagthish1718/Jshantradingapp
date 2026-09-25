@@ -18,6 +18,7 @@ import {
 } from '@expo-google-fonts/playfair-display';
 import AppNavigator from './src/navigation/AppNavigator';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+import TermsGateScreen from './src/screens/TermsGateScreen';
 import { LanguageProvider } from './src/context/LanguageContext';
 import { AppFlowProvider } from './src/context/AppFlowContext';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -44,15 +45,19 @@ function Root() {
     PlayfairDisplay_700Bold,
   });
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState<boolean | null>(null);
   const { session, authLoading } = useAuth();
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEYS.onboardingDone)
       .then((v) => setOnboardingDone(v === 'true'))
       .catch(() => setOnboardingDone(false));
+    AsyncStorage.getItem(STORAGE_KEYS.termsAccepted)
+      .then((v) => setTermsAccepted(v === 'true'))
+      .catch(() => setTermsAccepted(false));
   }, []);
 
-  const ready = fontsLoaded && onboardingDone !== null && !authLoading;
+  const ready = fontsLoaded && onboardingDone !== null && termsAccepted !== null && !authLoading;
 
   const onLayout = useCallback(async () => {
     if (ready) {
@@ -66,6 +71,25 @@ function Root() {
         <NiveshaLogo size={84} />
         <Text style={styles.loadingBrand}>Niveshaa</Text>
       </View>
+    );
+  }
+
+  // Terms & Privacy acceptance comes before anything else, even signup —
+  // required for Play Store and so every user has seen the "Paper Trading
+  // is simulated, not real advice" disclaimer before using the app.
+  if (!termsAccepted) {
+    return (
+      <SafeAreaProvider onLayout={onLayout} style={{ flex: 1 }}>
+        <StatusBar style="dark" />
+        <FadeInView key="terms-gate">
+          <TermsGateScreen
+            onAccept={() => {
+              AsyncStorage.setItem(STORAGE_KEYS.termsAccepted, 'true').catch(() => {});
+              setTermsAccepted(true);
+            }}
+          />
+        </FadeInView>
+      </SafeAreaProvider>
     );
   }
 
